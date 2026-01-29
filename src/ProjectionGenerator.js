@@ -349,11 +349,11 @@ export class ProjectionGenerator {
 
 		onProgress( 'Extracting edges' );
 		let edges = [];
-		yield* edgeGenerator.getEdgesGenerator( scene, edges, options );
+		yield* edgeGenerator.getEdgesGenerator( scene, edges );
 		if ( includeIntersectionEdges ) {
 
 			onProgress( 'Extracting self-intersecting edges' );
-			yield* edgeGenerator.getIntersectionEdgesGenerator( scene, edges, options );
+			yield* edgeGenerator.getIntersectionEdgesGenerator( scene, edges );
 
 		}
 

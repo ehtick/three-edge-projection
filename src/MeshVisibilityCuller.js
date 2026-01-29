@@ -10,6 +10,7 @@ import {
 	Mesh,
 	NoBlending,
 } from 'three';
+import { getAllMeshes } from './utils/getAllMeshes.js';
 
 // RGBA8 ID encoding - supports up to 16,777,215 objects (2^24 - 1)
 // ID 0 is valid, background is indicated by alpha = 0
@@ -28,23 +29,6 @@ function decodeId( buffer, index ) {
 
 }
 
-function collectAllObjects( object ) {
-
-	const result = new Set();
-	object.traverse( c => {
-
-		if ( c.isMesh ) {
-
-			result.add( c );
-
-		}
-
-	} );
-
-	return Array.from( result );
-
-}
-
 // TODO: WebGPU or occlusion queries would let us accelerate this. Ideally would we "contract" the depth buffer by one pixel by
 // taking the lowest value from all surrounding pixels in order to avoid mesh misses.
 export class MeshVisibilityCuller {
@@ -58,9 +42,9 @@ export class MeshVisibilityCuller {
 
 	}
 
-	async cull( object ) {
+	async cull( objects ) {
 
-		object = collectAllObjects( object );
+		objects = getAllMeshes( objects );
 
 		const { renderer, pixelsPerMeter } = this;
 		const size = new Vector3();
@@ -74,7 +58,7 @@ export class MeshVisibilityCuller {
 
 		// get the bounds of the image
 		box.makeEmpty();
-		object.forEach( o => {
+		objects.forEach( o => {
 
 			box.expandByObject( o );
 
@@ -125,9 +109,9 @@ export class MeshVisibilityCuller {
 				camera.updateProjectionMatrix();
 				renderer.clear();
 
-				for ( let i = 0; i < object.length; i ++ ) {
+				for ( let i = 0; i < objects.length; i ++ ) {
 
-					const object = object[ i ];
+					const object = objects[ i ];
 					idMesh.matrixWorld.copy( object.matrixWorld );
 					idMesh.geometry = object.geometry;
 
@@ -145,7 +129,7 @@ export class MeshVisibilityCuller {
 					if ( buffer[ i + 3 ] === 0 ) continue;
 
 					const id = decodeId( buffer, i );
-					visibleSet.add( object[ id ] );
+					visibleSet.add( objects[ id ] );
 
 				}
 
