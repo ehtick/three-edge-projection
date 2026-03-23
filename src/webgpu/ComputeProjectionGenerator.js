@@ -1,3 +1,5 @@
+import { getAllMeshes } from '../utils/getAllMeshes.js';
+
 export class ComputeProjectionGenerator {
 
 	constructor( renderer ) {
@@ -5,14 +7,16 @@ export class ComputeProjectionGenerator {
 		this.renderer = renderer;
 		this.angleThreshold = 50;
 		this.includeIntersectionEdges = true;
+		this.clipY = null;
 
 	}
 
 	async generate( scene ) {
 
-		const { angleThreshold, includeIntersectionEdges, renderer } = this;
+		const { angleThreshold, includeIntersectionEdges, clipY, renderer } = this;
 
 		// 1. collect all relevant meshes in the provided scene hierarchy
+		const meshes = getAllMeshes( scene );
 
 		// 2. compute the candidate edges accounting for clip planes and storing a map of
 		// lines to original meshes
