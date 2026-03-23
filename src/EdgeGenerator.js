@@ -3,6 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { generateEdges } from './utils/generateEdges.js';
 import { generateIntersectionEdges } from './utils/generateIntersectionEdges.js';
 import { getAllMeshes } from './utils/getAllMeshes.js';
+import { clipEdges } from './utils/clipEdges.js';
 
 const _BtoA = /* @__PURE__ */ new Matrix4();
 const _toLocalMatrix = /* @__PURE__ */ new Matrix4();
@@ -19,6 +20,7 @@ export class EdgeGenerator {
 		this.projectionDirection = new Vector3( 0, 1, 0 );
 		this.thresholdAngle = 50;
 		this.iterationTime = 30;
+		this.clipY = null;
 
 	}
 
@@ -30,6 +32,12 @@ export class EdgeGenerator {
 
 		const result = this.getEdgesGenerator( ...args ).next().value;
 		this.iterationTime = currIterationTime;
+
+		if ( this.clipY !== null ) {
+
+			clipEdges( result, this.clipY );
+
+		}
 
 		return result;
 
@@ -122,6 +130,12 @@ export class EdgeGenerator {
 
 		const result = this.getIntersectionEdgesGenerator( ...args ).next().value;
 		this.iterationTime = currIterationTime;
+
+		if ( this.clipY !== null ) {
+
+			clipEdges( result, this.clipY );
+
+		}
 
 		return result;
 

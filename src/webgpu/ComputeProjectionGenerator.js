@@ -1,4 +1,6 @@
 import { getAllMeshes } from '../utils/getAllMeshes.js';
+import { EdgeGenerator } from '../EdgeGenerator.js';
+import { isYProjectedLineDegenerate } from '../utils/triangleLineUtils.js';
 
 export class ComputeProjectionGenerator {
 
@@ -20,6 +22,19 @@ export class ComputeProjectionGenerator {
 
 		// 2. compute the candidate edges accounting for clip planes and storing a map of
 		// lines to original meshes
+		const edgeGenerator = new EdgeGenerator();
+		edgeGenerator.thresholdAngle = angleThreshold;
+		edgeGenerator.clipY = clipY;
+
+		let edges = [];
+		edgeGenerator.getEdges( scene, edges );
+		if ( includeIntersectionEdges ) {
+
+			edgeGenerator.getIntersectionEdges( scene, edges );
+
+		}
+
+		edges = edges.filter( e => ! isYProjectedLineDegenerate( e ) );
 
 		// 3. construct an object bvh from the meshes
 
