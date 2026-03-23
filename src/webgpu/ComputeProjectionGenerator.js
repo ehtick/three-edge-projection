@@ -6,6 +6,11 @@ import { isYProjectedLineDegenerate } from '../utils/triangleLineUtils.js';
 import { ProjectionGeneratorBVHComputeData } from './ProjectionGeneratorBVHComputeData.js';
 import { edgeStruct } from './nodes/structs.wgsl.js';
 
+// TODO: edge splitting — long edges that span a large portion of the scene create heavy single-thread
+// work in kernels 1 and 2. splitting them into sub-edges at pack time (step 4) distributes that work
+// across more threads. each sub-edge would carry tStart/tEnd (its [0,1] range within the original edge)
+// so the GPU overlap t0/t1 values can be remapped back to original-edge space on the CPU before merging.
+
 export class ComputeProjectionGenerator {
 
 	constructor( renderer ) {
@@ -75,17 +80,28 @@ export class ComputeProjectionGenerator {
 
 			edgeBufferAttribute.needsUpdate = true;
 
-			// 5. run a dry-run kernel (one thread per edge) to count the number of overlaps each edge
-			//    will produce via BVH traversal. read back the counts and determine how many edges fit
-			//    within the overlap output buffer capacity. advance the head pointer by this amount.
+			// 5. kernel 1 (count): one thread per edge traverses the BVH and atomically accumulates
+			//    the total number of triangle/edge pairs into a single counter. the result is written
+			//    into an indirect dispatch buffer so kernel 2 can be dispatched without a CPU readback.
+			//    advance the head pointer by batchSize.
 
-			// 6. run the main kernel for the fitting edges, using BVH traversal to find overlapping
-			//    triangles and writing overlap intervals to an atomic output buffer
+			// 6. kernel 2 (pairs): one thread per edge traverses the BVH again and writes
+			//    { edgeIndex, objectIndex, triIndex } records to a pairs buffer using atomicAdd to
+			//    claim each slot. if the buffer is full the thread early-outs, leaving those edges
+			//    unprocessed. the number of pairs written is stored for indirect dispatch of kernel 3.
+			//    kernel 2 also writes the index of the first edge that did not fit, so a retry knows
+			//    where to resume.
 
-			// 7. read back the overlap buffer and count. sort and merge overlaps per edge on the CPU
-			//    and push the resulting visible line segments onto the output array.
+			// 7. kernel 3 (overlaps): one thread per pair, dispatched indirectly from kernel 2's count.
+			//    reads the triangle/edge pair, transforms triangle vertices to world space, computes the
+			//    projected overlap, and writes { edgeIndex, t0, t1 } to an overlaps buffer via atomicAdd.
+			//    after kernel 3 completes, check the overflow flag from kernel 2. if overflow occurred,
+			//    clear the pairs buffer counters and re-run kernels 2 and 3 for the remaining edges.
 
-			// 8. reset the output buffer atomic counter and continue from the new head pointer position
+			// 8. read back the overlaps buffer and count. group intervals by edgeIndex, merge overlapping
+			//    [t0, t1] ranges per edge on the CPU, convert to 3D line segments, and push onto result.
+
+			// 9. reset the pairs and overlaps buffer atomic counters and continue from the new head pointer.
 			headIndex += batchSize;
 
 		}
