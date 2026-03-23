@@ -113,6 +113,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				let lineDir = normalize( lineWorldEnd - lineWorldStart );
 				let lineLen = length( lineWorldEnd - lineWorldStart );
 				let matrixWorld = shape.matrixWorld;
+				let inverted = determinant( matrixWorld ) < 0.0;
 
 				for ( var ti = offset; ti < offset + count; ti = ti + 1u ) {
 
@@ -130,7 +131,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					// skip back-facing triangles
 					let triNormal = cross( b - a, c - a );
-					if ( triNormal.y <= 0.0 ) {
+					let faceUp = triNormal.y > 0.0;
+					if ( faceUp == inverted ) {
 
 						continue;
 
