@@ -1,5 +1,5 @@
-import { BufferAttribute, BufferGeometry, SkinnedMesh } from 'three';
-import { StructTypeNode } from 'three/webgpu';
+import { BackSide, BufferAttribute, BufferGeometry, DoubleSide, FrontSide, SkinnedMesh } from 'three';
+import { FrontFacingNode, StructTypeNode } from 'three/webgpu';
 import { BVHComputeData } from './lib/BVHComputeData.js';
 import { MeshBVH, SAH, SkinnedMeshBVH } from 'three-mesh-bvh';
 import { wgslTagFn } from './lib/nodes/WGSLTagFnNode.js';
@@ -31,6 +31,18 @@ const edgeOverlapResultStruct = new StructTypeNode( {
 	dist: 'float',
 }, 'EdgeOverlapResult' );
 
+// Extended transform struct that adds a per-object "side" field for back-face
+// culling. Layout matches the base struct; "side" reuses the _alignment0 slot.
+// Values: 0 = DoubleSide (no cull), 1 = FrontSide, 2 = BackSide.
+const projectionTransformStruct = new StructTypeNode( {
+	matrixWorld: 'mat4x4f',
+	inverseMatrixWorld: 'mat4x4f',
+	nodeOffset: 'uint',
+	visible: 'uint',
+	side: 'int',
+	_alignment0: 'uint',
+}, 'ProjectionTransformStruct' );
+
 // Projection-generator-specific BVHComputeData that only requires position
 // attributes and auto-generates missing BVHs.
 export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
@@ -43,6 +55,39 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		} );
 
 		this.bvhMap = new Map();
+		this.structs.transform = projectionTransformStruct;
+
+	}
+
+	writeTransformData( info, premultiplyMatrix, writeOffset, targetBuffer ) {
+
+		super.writeTransformData( info, premultiplyMatrix, writeOffset, targetBuffer );
+
+		const { object, root } = info;
+		let material = object.material;
+		if ( Array.isArray( material ) ) {
+
+			material = material[ object.geometry.groups[ root ].materialIndex ];
+
+		}
+
+		let sideValue;
+		switch ( material.side ) {
+
+			case DoubleSide:
+				sideValue = 0;
+				break;
+			case FrontSide:
+				sideValue = 1;
+				break;
+			case BackSide:
+				sideValue = - 1;
+				break;
+
+		}
+
+		const transformBufferU32 = new Uint32Array( targetBuffer );
+		transformBufferU32[ writeOffset * projectionTransformStruct.getLength() + 34 ] = sideValue;
 
 	}
 
@@ -129,12 +174,18 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					let b = ( matrixWorld * vec4f( localB, 1.0 ) ).xyz;
 					let c = ( matrixWorld * vec4f( localC, 1.0 ) ).xyz;
 
-					// skip back-facing triangles
+					// back-face cull based on per-object side (0=double, 1=front, -1=back)
 					let triNormal = cross( b - a, c - a );
-					let faceUp = triNormal.y > 0.0;
-					if ( faceUp == inverted ) {
+					let side = ${ storage.transforms }[ shape.objectIndex ].side;
+					if ( side != 0 ) {
 
-						continue;
+						let isFrontUp = ( triNormal.y > 0.0 ) != inverted;
+						let keepFront = side > 0;
+						if ( isFrontUp != keepFront ) {
+
+							continue;
+
+						}
 
 					}
 
