@@ -18,3 +18,13 @@ export const overlapResultStruct = new StructTypeNode( {
 	t1: 'f32',
 	valid: 'bool',
 }, 'OverlapResult' );
+
+export const clipResultStruct = new StructTypeNode( {
+	count: 'uint',
+	a0: 'vec3f',
+	b0: 'vec3f',
+	c0: 'vec3f',
+	a1: 'vec3f',
+	b1: 'vec3f',
+	c1: 'vec3f',
+}, 'ClipResult' );

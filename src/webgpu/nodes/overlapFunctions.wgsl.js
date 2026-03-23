@@ -1,7 +1,7 @@
 import { wgsl } from 'three/tsl';
 import { wgslTagFn } from '../lib/nodes/WGSLTagFnNode.js';
 import { constants } from './common.wgsl.js';
-import { trimResultStruct, overlapResultStruct } from './structs.wgsl.js';
+import { trimResultStruct, overlapResultStruct, clipResultStruct } from './structs.wgsl.js';
 
 const { PARALLEL_EPSILON, AREA_EPSILON, DIST_EPSILON, VERTEX_EPSILON } = constants;
 
@@ -13,6 +13,120 @@ export const overlapStorage = wgsl( /* wgsl */`
 	var<private> overlaps     : array<vec2f, ${ MAX_OVERLAPS_PER_EDGE }>;
 	var<private> overlapCount : u32 = 0u;
 ` );
+
+// Clips triangle (a, b, c) against a plane (plane.xyz = normal, plane.w = constant,
+// equation: dot(normal, p) + constant >= 0 is the kept side).
+// Returns 0, 1, or 2 sub-triangles covering the kept portion.
+export const clipTriangleToPlane = wgslTagFn/* wgsl */`
+	fn clipTriangleToPlane( a: vec3f, b: vec3f, c: vec3f, plane: vec4f ) -> ${ clipResultStruct } {
+
+		var result: ${ clipResultStruct };
+
+		let da = dot( plane.xyz, a ) + plane.w;
+		let db = dot( plane.xyz, b ) + plane.w;
+		let dc = dot( plane.xyz, c ) + plane.w;
+
+		let aKept = da >= 0.0;
+		let bKept = db >= 0.0;
+		let cKept = dc >= 0.0;
+		let keptCount = u32( aKept ) + u32( bKept ) + u32( cKept );
+
+		// all kept - return the original triangle
+		if ( keptCount == 3u ) {
+
+			result.count = 1u;
+			result.a0 = a;
+			result.b0 = b;
+			result.c0 = c;
+			return result;
+
+		}
+
+		// all discarded
+		if ( keptCount == 0u ) {
+
+			return result;
+
+		}
+
+		// vertex positions and plane distances packed into arrays for index-based access
+		let pts   = array<vec3f, 3>( a, b, c );
+		let dists = array<f32,   3>( da, db, dc );
+
+		if ( keptCount == 1u ) {
+
+			// apex is the lone kept vertex; the other two are clipped away
+			var apexIdx = 0u;
+			if ( bKept ) {
+
+				apexIdx = 1u;
+
+			} else if ( cKept ) {
+
+				apexIdx = 2u;
+
+			}
+
+			let apex     = pts[ apexIdx ];
+			let clipped0 = pts[ ( apexIdx + 1u ) % 3u ];
+			let clipped1 = pts[ ( apexIdx + 2u ) % 3u ];
+
+			let apexDist     = dists[ apexIdx ];
+			let clipped0Dist = dists[ ( apexIdx + 1u ) % 3u ];
+			let clipped1Dist = dists[ ( apexIdx + 2u ) % 3u ];
+
+			// parametric intersection along apex->clipped0 and apex->clipped1
+			let t0 = apexDist / ( apexDist - clipped0Dist );
+			let t1 = apexDist / ( apexDist - clipped1Dist );
+
+			result.count = 1u;
+			result.a0 = apex;
+			result.b0 = mix( apex, clipped0, t0 );
+			result.c0 = mix( apex, clipped1, t1 );
+			return result;
+
+		}
+
+		// the lone discarded vertex is cut off, leaving a quad that we split into two triangles
+		var discardedIdx = 2u;
+		if ( ! aKept ) {
+
+			discardedIdx = 0u;
+
+		} else if ( ! bKept ) {
+
+			discardedIdx = 1u;
+
+		}
+
+		// kept0 and kept1 are the two vertices on the kept side; discarded is the one being cut off
+		let kept0     = pts[ ( discardedIdx + 1u ) % 3u ];
+		let kept1     = pts[ ( discardedIdx + 2u ) % 3u ];
+		let discarded = pts[ discardedIdx ];
+
+		let kept0Dist     = dists[ ( discardedIdx + 1u ) % 3u ];
+		let kept1Dist     = dists[ ( discardedIdx + 2u ) % 3u ];
+		let discardedDist = dists[ discardedIdx ];
+
+		// parametric intersections along kept0->discarded and kept1->discarded
+		let t0 = kept0Dist / ( kept0Dist - discardedDist );
+		let t1 = kept1Dist / ( kept1Dist - discardedDist );
+
+		let edge0Cut = mix( kept0, discarded, t0 );
+		let edge1Cut = mix( kept1, discarded, t1 );
+
+		// quad (kept0, kept1, edge1Cut, edge0Cut) split into two triangles
+		result.count = 2u;
+		result.a0 = kept0;
+		result.b0 = kept1;
+		result.c0 = edge1Cut;
+		result.a1 = kept0;
+		result.b1 = edge1Cut;
+		result.c1 = edge0Cut;
+		return result;
+
+	}
+`;
 
 // Clips the edge (lineStart -> lineEnd) to the portion lying at or below the
 // plane of triangle (a, b, c). The plane is always treated as up-facing.
