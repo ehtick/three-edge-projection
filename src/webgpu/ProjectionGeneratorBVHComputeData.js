@@ -4,6 +4,7 @@ import { BVHComputeData } from './lib/BVHComputeData.js';
 import { MeshBVH, SAH, SkinnedMeshBVH } from 'three-mesh-bvh';
 import { wgslTagFn } from './lib/nodes/WGSLTagFnNode.js';
 import { bvhNodeStruct, bvhNodeBoundsStruct } from './lib/wgsl/structs.wgsl.js';
+import { transformBVHBounds } from './nodes/utils.wgsl.js';
 import { constants as overlapConstants } from './nodes/common.wgsl.js';
 import {
 	appendOverlap,
@@ -13,13 +14,13 @@ import {
 	isLineTriangleEdge,
 } from './nodes/overlapFunctions.wgsl.js';
 
-// Shape struct carrying both world-space and local-space line endpoints,
-// plus the transform buffer index (set by transformShapeFn during TLAS traversal).
+// Shape struct carrying world-space line endpoints plus the object-to-world
+// matrix (set by transformShapeFn; identity at top level so world-space
+// bounds pass through unchanged) and the transform buffer index.
 const edgeLineShapeStruct = new StructTypeNode( {
 	worldStart: 'vec3f',
 	worldEnd: 'vec3f',
-	localStart: 'vec3f',
-	localEnd: 'vec3f',
+	matrixWorld: 'mat4x4f',
 	objectIndex: 'uint',
 }, 'EdgeLineShape' );
 
@@ -52,13 +53,13 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 	}
 
-	getOverlapsFn( name ) {
+	getOverlapsFn() {
 
-		const { storage } = this;
+		const { storage, prefix } = this;
 		const { DIST_EPSILON } = overlapConstants;
 
 		const boundsOrderFn = wgslTagFn/* wgsl */`
-			fn ${ name }BoundsOrder( shape: ${ edgeLineShapeStruct }, splitAxis: u32, node: ${ bvhNodeStruct } ) -> bool {
+			fn ${ prefix }BoundsOrder( shape: ${ edgeLineShapeStruct }, splitAxis: u32, node: ${ bvhNodeStruct } ) -> bool {
 
 				return true;
 
@@ -66,26 +67,30 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		`;
 
 		const intersectsBoundsFn = wgslTagFn/* wgsl */`
-			fn ${ name }IntersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> f32 {
+			fn ${ prefix }IntersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> f32 {
 
-				// Y-cull using world-space line endpoints; bounds.max[1] is in local
-				// space at BLAS level but the approximation is acceptable.
-				if ( bounds.max[ 1 ] <= min( shape.worldStart.y, shape.worldEnd.y ) ) {
+				// Transform bounds to world space. At the top level the shape matrix
+				// is identity, so world-space bounds pass through unchanged.
+				let aabb = ${ transformBVHBounds }( bounds, shape.matrixWorld );
 
-					return -1.0;
+				// Y-cull: bounds entirely below the line
+				if ( aabb.max[ 1 ] <= min( shape.worldStart.y, shape.worldEnd.y ) ) {
+
+					return - 1.0;
 
 				}
 
-				// XZ AABB cull — localStart/End equals worldStart/End at TLAS level,
-				// and is local-space after transformShapeFn is applied for BLAS.
-				let localMinX = min( shape.localStart.x, shape.localEnd.x );
-				let localMaxX = max( shape.localStart.x, shape.localEnd.x );
-				let localMinZ = min( shape.localStart.z, shape.localEnd.z );
-				let localMaxZ = max( shape.localStart.z, shape.localEnd.z );
-				if ( bounds.max[ 0 ] < localMinX || bounds.min[ 0 ] > localMaxX ||
-				     bounds.max[ 2 ] < localMinZ || bounds.min[ 2 ] > localMaxZ ) {
+				// XZ cull against the line's world-space XZ extents
+				let lineMinX = min( shape.worldStart.x, shape.worldEnd.x );
+				let lineMaxX = max( shape.worldStart.x, shape.worldEnd.x );
+				let lineMinZ = min( shape.worldStart.z, shape.worldEnd.z );
+				let lineMaxZ = max( shape.worldStart.z, shape.worldEnd.z );
+				if (
+					aabb.max[ 0 ] < lineMinX || aabb.min[ 0 ] > lineMaxX ||
+					aabb.max[ 2 ] < lineMinZ || aabb.min[ 2 ] > lineMaxZ
+				) {
 
-					return -1.0;
+					return - 1.0;
 
 				}
 
@@ -95,7 +100,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		`;
 
 		const intersectRangeFn = wgslTagFn/* wgsl */`
-			fn ${ name }IntersectRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, bestDist: f32 ) -> ${ edgeOverlapResultStruct } {
+			fn ${ prefix }IntersectRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, bestDist: f32 ) -> ${ edgeOverlapResultStruct } {
 
 				var result: ${ edgeOverlapResultStruct };
 				result.didHit = false;
@@ -105,7 +110,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				let lineWorldEnd   = shape.worldEnd;
 				let lineMinY = min( lineWorldStart.y, lineWorldEnd.y );
 				let lineDir  = normalize( lineWorldEnd - lineWorldStart );
-				let lineLen  = length( lineWorldEnd - lineWorldStart );
+				let lineLen     = length( lineWorldEnd - lineWorldStart );
+				let matrixWorld = shape.matrixWorld;
 
 				for ( var ti = offset; ti < offset + count; ti = ti + 1u ) {
 
@@ -117,8 +123,6 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					let localB = ${ storage.attributes }[ i1 ].position.xyz;
 					let localC = ${ storage.attributes }[ i2 ].position.xyz;
 
-					// transform triangle vertices to world space
-					let matrixWorld = ${ storage.transforms }[ shape.objectIndex ].matrixWorld;
 					let a = ( matrixWorld * vec4f( localA, 1.0 ) ).xyz;
 					let b = ( matrixWorld * vec4f( localB, 1.0 ) ).xyz;
 					let c = ( matrixWorld * vec4f( localC, 1.0 ) ).xyz;
@@ -181,11 +185,10 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		`;
 
 		const transformShapeFn = wgslTagFn/* wgsl */`
-			fn ${ name }TransformShape( shape: ${ edgeLineShapeStruct }, inverseMatrix: mat4x4f, objectIndex: u32 ) -> ${ edgeLineShapeStruct } {
+			fn ${ prefix }TransformShape( shape: ${ edgeLineShapeStruct }, inverseMatrix: mat4x4f, objectIndex: u32 ) -> ${ edgeLineShapeStruct } {
 
 				var localShape = shape;
-				localShape.localStart  = ( inverseMatrix * vec4f( shape.worldStart, 1.0 ) ).xyz;
-				localShape.localEnd    = ( inverseMatrix * vec4f( shape.worldEnd,   1.0 ) ).xyz;
+				localShape.matrixWorld = ${ storage.transforms }[ objectIndex ].matrixWorld;
 				localShape.objectIndex = objectIndex;
 				return localShape;
 
@@ -193,13 +196,13 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		`;
 
 		const transformResultFn = wgslTagFn/* wgsl */`
-			fn ${ name }TransformResult( result: ptr<function, ${ edgeOverlapResultStruct }>, objectIndex: u32 ) -> void {
+			fn ${ prefix }TransformResult( result: ptr<function, ${ edgeOverlapResultStruct }>, objectIndex: u32 ) -> void {
 
 			}
 		`;
 
 		const traversalFn = this.getShapecastFn( {
-			name: name + '_traversal',
+			name: prefix + '_traversal',
 			shapeStruct: edgeLineShapeStruct,
 			resultStruct: edgeOverlapResultStruct,
 			boundsOrderFn,
@@ -212,21 +215,19 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		// Thin wrapper: packs the line into an EdgeLineShape, runs the full
 		// TLAS/BLAS traversal (accumulating into the private buffer), then
 		// sorts and merges the resulting intervals.
-		const overlapsFn = wgslTagFn/* wgsl */`
-			fn ${ name }( lineStart: vec3f, lineEnd: vec3f ) {
+		return wgslTagFn/* wgsl */`
+			fn ${ prefix }( lineStart: vec3f, lineEnd: vec3f ) {
 
 				var shape: ${ edgeLineShapeStruct };
-				shape.worldStart = lineStart;
-				shape.worldEnd   = lineEnd;
-				shape.localStart = lineStart;
-				shape.localEnd   = lineEnd;
+				shape.worldStart  = lineStart;
+				shape.worldEnd    = lineEnd;
+				shape.matrixWorld = mat4x4f( 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 );
+				shape.objectIndex = 0u;
 				${ traversalFn }( shape );
 				${ sortAndMergeOverlaps }();
 
 			}
 		`;
-
-		return overlapsFn;
 
 	}
 
