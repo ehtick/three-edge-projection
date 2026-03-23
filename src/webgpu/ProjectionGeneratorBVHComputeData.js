@@ -104,13 +104,14 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				var result: ${ edgeOverlapResultStruct };
 				result.didHit = false;
-				result.dist   = bestDist;
+				result.dist = bestDist;
 
 				let lineWorldStart = shape.worldStart;
-				let lineWorldEnd   = shape.worldEnd;
+				let lineWorldEnd = shape.worldEnd;
 				let lineMinY = min( lineWorldStart.y, lineWorldEnd.y );
-				let lineDir  = normalize( lineWorldEnd - lineWorldStart );
-				let lineLen     = length( lineWorldEnd - lineWorldStart );
+				let lineMaxY = max( lineWorldStart.y, lineWorldEnd.y );
+				let lineDir = normalize( lineWorldEnd - lineWorldStart );
+				let lineLen = length( lineWorldEnd - lineWorldStart );
 				let matrixWorld = shape.matrixWorld;
 
 				for ( var ti = offset; ti < offset + count; ti = ti + 1u ) {
@@ -127,6 +128,14 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					let b = ( matrixWorld * vec4f( localB, 1.0 ) ).xyz;
 					let c = ( matrixWorld * vec4f( localC, 1.0 ) ).xyz;
 
+					// skip back-facing triangles
+					let triNormal = cross( b - a, c - a );
+					if ( triNormal.y <= 0.0 ) {
+
+						continue;
+
+					}
+
 					// skip triangles entirely below the edge
 					let highestTriY = max( max( a.y, b.y ), c.y );
 					if ( highestTriY <= lineMinY ) {
@@ -142,16 +151,27 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					}
 
-					// trim edge to the portion below the triangle plane
-					let trimResult = ${ trimToBeneathTriPlane }( a, b, c, lineWorldStart, lineWorldEnd );
-					if ( ! trimResult.valid ) {
+					// trim edge to the portion below the triangle plane; if the
+					// entire line is already below the triangle, use the full line
+					let lowestTriY = min( min( a.y, b.y ), c.y );
+					var trimStart = lineWorldStart;
+					var trimEnd   = lineWorldEnd;
+					if ( lineMaxY >= lowestTriY ) {
 
-						continue;
+						let trimResult = ${ trimToBeneathTriPlane }( a, b, c, lineWorldStart, lineWorldEnd );
+						if ( ! trimResult.valid ) {
+
+							continue;
+
+						}
+
+						trimStart = trimResult.start;
+						trimEnd   = trimResult.end;
 
 					}
 
 					// skip degenerate trimmed segments
-					let trimLen = length( trimResult.end - trimResult.start );
+					let trimLen = length( trimEnd - trimStart );
 					if ( trimLen < ${ DIST_EPSILON } ) {
 
 						continue;
@@ -159,7 +179,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					}
 
 					// get projected overlap range in trimmed-edge space
-					let overlapRange = ${ getProjectedOverlapRange }( trimResult.start, trimResult.end, a, b, c );
+					let overlapRange = ${ getProjectedOverlapRange }( trimStart, trimEnd, a, b, c );
 					if ( ! overlapRange.valid ) {
 
 						continue;
@@ -167,8 +187,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					}
 
 					// remap t values from trimmed-edge space to original-edge space
-					let tTrimStart = dot( trimResult.start - lineWorldStart, lineDir ) / lineLen;
-					let tTrimEnd   = dot( trimResult.end   - lineWorldStart, lineDir ) / lineLen;
+					let tTrimStart = dot( trimStart - lineWorldStart, lineDir ) / lineLen;
+					let tTrimEnd   = dot( trimEnd   - lineWorldStart, lineDir ) / lineLen;
 					let t0 = clamp( tTrimStart + overlapRange.t0 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
 					let t1 = clamp( tTrimStart + overlapRange.t1 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
 					if ( t0 < t1 ) {
