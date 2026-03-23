@@ -92,6 +92,7 @@ export class EdgeGenerator {
 				// push the edges individually to avoid stack overflow
 				for ( let i = 0; i < results.length; i ++ ) {
 
+					results[ i ].mesh = mesh;
 					resultEdges.push( results[ i ] );
 
 				}

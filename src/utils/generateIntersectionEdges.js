@@ -1,5 +1,6 @@
 import { Line3 } from 'three';
 import { isLineTriangleEdge } from './triangleLineUtils.js';
+import { ProjectionEdge } from './ProjectionEdge.js';
 
 // TODO: How can we add support for "iterationTime"?
 
@@ -39,7 +40,7 @@ export function generateIntersectionEdges( bvhA, bvhB, matrixBToA, target = [] )
 				! isLineTriangleEdge( tri2, _line )
 			) {
 
-				target.push( _line.clone() );
+				target.push( new ProjectionEdge().copy( _line ) );
 
 			}
 
