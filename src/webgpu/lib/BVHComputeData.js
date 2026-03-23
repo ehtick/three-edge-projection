@@ -394,14 +394,14 @@ export class BVHComputeData {
 						}
 
 						// Transform shape into object local space
-						let localShape = ${ transformShapeFn }( shape, transform.inverseMatrixWorld );
+						let localShape = ${ transformShapeFn }( shape, transform.inverseMatrixWorld, t );
 						let blasHit = ${ blasFn( { shape: 'localShape', rootNodeIndex: 'transform.nodeOffset', bestDist: 'bestHit.dist' } ) };
 						if ( blasHit.didHit && blasHit.dist < bestHit.dist ) {
 
 							bestHit = blasHit;
 							bestHit.objectIndex = t;
 
-							${ transformResultFn }( &bestHit, transform.matrixWorld, transform.inverseMatrixWorld );
+							${ transformResultFn }( &bestHit, t );
 
 						}
 
@@ -836,7 +836,7 @@ export class BVHComputeData {
 			transformShapeFn: wgslTagFn/* wgsl */`
 				${ [ scratchRayScalar ] }
 
-				fn transformRay( ray: ${ rayStruct }, toLocal: mat4x4f ) -> ${ rayStruct } {
+				fn transformRay( ray: ${ rayStruct }, toLocal: mat4x4f, objectIndex: u32 ) -> ${ rayStruct } {
 
 					var localRay: Ray;
 					localRay.origin = ( toLocal * vec4f( ray.origin, 1.0 ) ).xyz;
@@ -851,8 +851,9 @@ export class BVHComputeData {
 				}
 			`,
 			transformResultFn: wgslTagFn/* wgsl */`
-				fn transformResult( hit: ptr<function, ${ intersectionResultStruct }>, toWorld: mat4x4f, toLocal: mat4x4f ) -> void {
+				fn transformResult( hit: ptr<function, ${ intersectionResultStruct }>, objectIndex: u32 ) -> void {
 
+					let toLocal = ${ storage.transforms }[ objectIndex ].inverseMatrixWorld;
 					hit.normal = normalize( ( transpose( toLocal ) * vec4f( hit.normal, 0.0 ) ).xyz );
 
 				}
