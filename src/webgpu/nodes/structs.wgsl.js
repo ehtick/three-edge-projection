@@ -28,3 +28,19 @@ export const clipResultStruct = new StructTypeNode( {
 	b1: 'vec3f',
 	c1: 'vec3f',
 }, 'ClipResult' );
+
+// One entry per qualifying (edge, triangle) pair recorded during kernel 2.
+export const triEdgePairStruct = new StructTypeNode( {
+	edgeIndex: 'uint',
+	objectIndex: 'uint',
+	triIndex: 'uint',
+}, 'TriEdgePair' );
+triEdgePairStruct.getLength = () => 3;
+
+// One entry per visible overlap interval recorded during kernel 3.
+export const overlapRecordStruct = new StructTypeNode( {
+	edgeIndex: 'uint',
+	t0: 'f32',
+	t1: 'f32',
+}, 'OverlapRecord' );
+overlapRecordStruct.getLength = () => 3;

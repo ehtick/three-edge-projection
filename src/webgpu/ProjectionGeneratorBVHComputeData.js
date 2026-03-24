@@ -1,5 +1,6 @@
 import { BackSide, BufferAttribute, BufferGeometry, DoubleSide, FrontSide, SkinnedMesh } from 'three';
 import { StructTypeNode } from 'three/webgpu';
+import { wgsl } from 'three/tsl';
 import { BVHComputeData } from './lib/BVHComputeData.js';
 import { MeshBVH, SAH, SkinnedMeshBVH } from 'three-mesh-bvh';
 import { wgslTagFn } from './lib/nodes/WGSLTagFnNode.js';
@@ -7,8 +8,6 @@ import { bvhNodeStruct, bvhNodeBoundsStruct } from './lib/wgsl/structs.wgsl.js';
 import { transformBVHBounds } from './nodes/utils.wgsl.js';
 import { constants as overlapConstants } from './nodes/common.wgsl.js';
 import {
-	appendOverlap,
-	sortAndMergeOverlaps,
 	trimToBeneathTriPlane,
 	getProjectedOverlapRange,
 	isLineTriangleEdge,
@@ -22,6 +21,7 @@ const edgeLineShapeStruct = new StructTypeNode( {
 	worldEnd: 'vec3f',
 	matrixWorld: 'mat4x4f',
 	objectIndex: 'uint',
+	edgeIndex: 'uint',
 }, 'EdgeLineShape' );
 
 // Minimal result struct satisfying the shapecast interface.
@@ -29,6 +29,7 @@ const edgeLineShapeStruct = new StructTypeNode( {
 const edgeOverlapResultStruct = new StructTypeNode( {
 	didHit: 'bool',
 	dist: 'float',
+	objectIndex: 'uint',
 }, 'EdgeOverlapResult' );
 
 // Extended transform struct that adds a per-object "side" field for back-face
@@ -56,6 +57,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 		this.bvhMap = new Map();
 		this.structs.transform = projectionTransformStruct;
+		this._sharedFns = null;
+		this._fns = null;
 
 	}
 
@@ -95,13 +98,16 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 		super.update();
 		this.bvhMap.clear();
+		this._sharedFns = null;
+		this._fns = null;
 
 	}
 
-	getOverlapsFn() {
+	_buildSharedFns() {
+
+		if ( this._sharedFns ) return this._sharedFns;
 
 		const { storage, prefix } = this;
-		const { DIST_EPSILON } = overlapConstants;
 
 		const boundsOrderFn = wgslTagFn/* wgsl */`
 			fn ${ prefix }BoundsOrder( shape: ${ edgeLineShapeStruct }, splitAxis: u32, node: ${ bvhNodeStruct } ) -> bool {
@@ -144,8 +150,154 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 			}
 		`;
 
+		const transformShapeFn = wgslTagFn/* wgsl */`
+			fn ${ prefix }TransformShape( shape: ${ edgeLineShapeStruct }, inverseMatrix: mat4x4f, objectIndex: u32 ) -> ${ edgeLineShapeStruct } {
+
+				var localShape = shape;
+				localShape.matrixWorld = ${ storage.transforms }[ objectIndex ].matrixWorld;
+				localShape.objectIndex = objectIndex;
+				return localShape;
+
+			}
+		`;
+
+		const transformResultFn = wgslTagFn/* wgsl */`
+			fn ${ prefix }TransformResult( result: ptr<function, ${ edgeOverlapResultStruct }>, objectIndex: u32 ) -> void {
+
+			}
+		`;
+
+		this._sharedFns = { boundsOrderFn, intersectsBoundsFn, transformShapeFn, transformResultFn };
+		return this._sharedFns;
+
+	}
+
+	// Returns a WGSL function — fn prefix_ComputeOverlap( pairIndex: u32 ) -> void — that reads
+	// one (edge, triangle) pair record, fetches the edge endpoints and triangle vertices,
+	// runs the single-triangle overlap computation, and atomically writes the resulting
+	// [t0, t1] interval to the overlaps buffer if one exists.
+	//
+	// NOTE: overlapCountStorage must be bound as array<atomic<u32>> (read_write storage)
+	//       and pre-cleared to 0 before dispatch.
+	getOverlapsFn( { pairsStorage, edgesStorage, overlapsStorage, overlapCountStorage, overlapCapacityUniform } ) {
+
+		const { storage, prefix } = this;
+		const { DIST_EPSILON } = overlapConstants;
+
+		return wgslTagFn/* wgsl */`
+			fn ${ prefix }ComputeOverlap( pairIndex: u32 ) -> void {
+
+				let pair     = ${ pairsStorage }[ pairIndex ];
+				let edgeIdx  = pair.edgeIndex;
+				let objIdx   = pair.objectIndex;
+				let ti       = pair.triIndex;
+
+				let lineWorldStart = vec3f(
+					${ edgesStorage }[ edgeIdx ].start[ 0 ],
+					${ edgesStorage }[ edgeIdx ].start[ 1 ],
+					${ edgesStorage }[ edgeIdx ].start[ 2 ]
+				);
+				let lineWorldEnd = vec3f(
+					${ edgesStorage }[ edgeIdx ].end[ 0 ],
+					${ edgesStorage }[ edgeIdx ].end[ 1 ],
+					${ edgesStorage }[ edgeIdx ].end[ 2 ]
+				);
+
+				let i0 = ${ storage.index }[ ti * 3u ];
+				let i1 = ${ storage.index }[ ti * 3u + 1u ];
+				let i2 = ${ storage.index }[ ti * 3u + 2u ];
+
+				let matrixWorld = ${ storage.transforms }[ objIdx ].matrixWorld;
+				let a = ( matrixWorld * vec4f( ${ storage.attributes }[ i0 ].position.xyz, 1.0 ) ).xyz;
+				let b = ( matrixWorld * vec4f( ${ storage.attributes }[ i1 ].position.xyz, 1.0 ) ).xyz;
+				let c = ( matrixWorld * vec4f( ${ storage.attributes }[ i2 ].position.xyz, 1.0 ) ).xyz;
+
+				// back-face cull based on per-object side (0=double, 1=front, -1=back)
+				let inverted  = determinant( matrixWorld ) < 0.0;
+				let triNormal = cross( b - a, c - a );
+				let side = ${ storage.transforms }[ objIdx ].side;
+				if ( side != 0 ) {
+
+					let isFrontUp = ( triNormal.y > 0.0 ) != inverted;
+					let keepFront = side > 0;
+					if ( isFrontUp != keepFront ) { return; }
+
+				}
+
+				let lineMinY = min( lineWorldStart.y, lineWorldEnd.y );
+				let lineMaxY = max( lineWorldStart.y, lineWorldEnd.y );
+
+				// skip triangles entirely below the edge
+				if ( max( max( a.y, b.y ), c.y ) <= lineMinY ) { return; }
+
+				// skip if the edge lies on this triangle
+				if ( ${ isLineTriangleEdge }( lineWorldStart, lineWorldEnd, a, b, c ) ) { return; }
+
+				// trim edge to the portion below the triangle plane; if the
+				// entire line is already below the triangle, use the full line
+				let lowestTriY = min( min( a.y, b.y ), c.y );
+				var trimStart = lineWorldStart;
+				var trimEnd   = lineWorldEnd;
+				if ( lineMaxY >= lowestTriY ) {
+
+					let trimResult = ${ trimToBeneathTriPlane }( a, b, c, lineWorldStart, lineWorldEnd );
+					if ( ! trimResult.valid ) { return; }
+					trimStart = trimResult.start;
+					trimEnd   = trimResult.end;
+
+				}
+
+				// skip degenerate trimmed segments
+				if ( length( trimEnd - trimStart ) < ${ DIST_EPSILON } ) { return; }
+
+				// get projected overlap range in trimmed-edge space
+				let overlapRange = ${ getProjectedOverlapRange }( trimStart, trimEnd, a, b, c );
+				if ( ! overlapRange.valid ) { return; }
+
+				// remap t values from trimmed-edge space to original-edge space
+				let lineDir    = normalize( lineWorldEnd - lineWorldStart );
+				let lineLen    = length( lineWorldEnd - lineWorldStart );
+				let tTrimStart = dot( trimStart - lineWorldStart, lineDir ) / lineLen;
+				let tTrimEnd   = dot( trimEnd   - lineWorldStart, lineDir ) / lineLen;
+				let t0 = clamp( tTrimStart + overlapRange.t0 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
+				let t1 = clamp( tTrimStart + overlapRange.t1 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
+				if ( t0 >= t1 ) { return; }
+
+				// claim a slot and write the overlap record
+				let slot = atomicAdd( &${ overlapCountStorage }[ 0 ], 1u );
+				if ( slot < ${ overlapCapacityUniform } ) {
+
+					${ overlapsStorage }[ slot ].edgeIndex = edgeIdx;
+					${ overlapsStorage }[ slot ].t0        = t0;
+					${ overlapsStorage }[ slot ].t1        = t1;
+
+				}
+
+			}
+		`;
+
+	}
+
+	// Returns a WGSL function — fn prefix_Traverse( edgeIndex, lineStart, lineEnd, writePairs: u32 ) -> u32 —
+	// that traverses the BVH for one edge and counts qualifying (edge, triangle) pairs.
+	// When writePairs is non-zero it also claims atomic slots in the pairs buffer and writes
+	// { edgeIndex, objectIndex, triIndex } records; if the buffer overflows the first overflowing
+	// edgeIndex is recorded via atomicMin so the caller can retry the remaining edges.
+	// The count is always returned so kernel 1 can atomically add it to the shared total.
+	//
+	// NOTE: pairCountStorage / overflowEdgeIndexStorage must be bound as array<atomic<u32>> (read_write storage).
+	//       overflowEdgeIndexStorage must be pre-initialised to 0xffffffffu before a write pass.
+	getTraversalFn( { pairsStorage, pairCountStorage, pairsCapacityUniform, overflowEdgeIndexStorage } ) {
+
+		const { storage, prefix } = this;
+		const { boundsOrderFn, intersectsBoundsFn, transformShapeFn, transformResultFn } = this._buildSharedFns();
+
+		const countLocalStorage = wgsl( /* wgsl */`var<private> ${ prefix }_pairCountLocal : u32 = 0u;` );
+		const writePairsStorage = wgsl( /* wgsl */`var<private> ${ prefix }_writePairs : u32 = 0u;` );
+
 		const intersectRangeFn = wgslTagFn/* wgsl */`
-			fn ${ prefix }IntersectRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, bestDist: f32 ) -> ${ edgeOverlapResultStruct } {
+			${ [ countLocalStorage, writePairsStorage ] }
+			fn ${ prefix }TraverseRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, bestDist: f32 ) -> ${ edgeOverlapResultStruct } {
 
 				var result: ${ edgeOverlapResultStruct };
 				result.didHit = false;
@@ -154,9 +306,6 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				let lineWorldStart = shape.worldStart;
 				let lineWorldEnd = shape.worldEnd;
 				let lineMinY = min( lineWorldStart.y, lineWorldEnd.y );
-				let lineMaxY = max( lineWorldStart.y, lineWorldEnd.y );
-				let lineDir = normalize( lineWorldEnd - lineWorldStart );
-				let lineLen = length( lineWorldEnd - lineWorldStart );
 				let matrixWorld = shape.matrixWorld;
 				let inverted = determinant( matrixWorld ) < 0.0;
 
@@ -204,49 +353,23 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					}
 
-					// trim edge to the portion below the triangle plane; if the
-					// entire line is already below the triangle, use the full line
-					let lowestTriY = min( min( a.y, b.y ), c.y );
-					var trimStart = lineWorldStart;
-					var trimEnd   = lineWorldEnd;
-					if ( lineMaxY >= lowestTriY ) {
+					${ prefix }_pairCountLocal = ${ prefix }_pairCountLocal + 1u;
 
-						let trimResult = ${ trimToBeneathTriPlane }( a, b, c, lineWorldStart, lineWorldEnd );
-						if ( ! trimResult.valid ) {
+					// claim a slot and write the pair record when in write mode
+					if ( ${ prefix }_writePairs != 0u ) {
 
-							continue;
+						let slot = atomicAdd( &${ pairCountStorage }[ 0 ], 1u );
+						if ( slot < ${ pairsCapacityUniform } ) {
+
+							${ pairsStorage }[ slot ].edgeIndex   = shape.edgeIndex;
+							${ pairsStorage }[ slot ].objectIndex = shape.objectIndex;
+							${ pairsStorage }[ slot ].triIndex    = ti;
+
+						} else {
+
+							atomicMin( &${ overflowEdgeIndexStorage }[ 0 ], shape.edgeIndex );
 
 						}
-
-						trimStart = trimResult.start;
-						trimEnd   = trimResult.end;
-
-					}
-
-					// skip degenerate trimmed segments
-					let trimLen = length( trimEnd - trimStart );
-					if ( trimLen < ${ DIST_EPSILON } ) {
-
-						continue;
-
-					}
-
-					// get projected overlap range in trimmed-edge space
-					let overlapRange = ${ getProjectedOverlapRange }( trimStart, trimEnd, a, b, c );
-					if ( ! overlapRange.valid ) {
-
-						continue;
-
-					}
-
-					// remap t values from trimmed-edge space to original-edge space
-					let tTrimStart = dot( trimStart - lineWorldStart, lineDir ) / lineLen;
-					let tTrimEnd   = dot( trimEnd   - lineWorldStart, lineDir ) / lineLen;
-					let t0 = clamp( tTrimStart + overlapRange.t0 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
-					let t1 = clamp( tTrimStart + overlapRange.t1 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
-					if ( t0 < t1 ) {
-
-						${ appendOverlap }( t0, t1 );
 
 					}
 
@@ -257,25 +380,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 			}
 		`;
 
-		const transformShapeFn = wgslTagFn/* wgsl */`
-			fn ${ prefix }TransformShape( shape: ${ edgeLineShapeStruct }, inverseMatrix: mat4x4f, objectIndex: u32 ) -> ${ edgeLineShapeStruct } {
-
-				var localShape = shape;
-				localShape.matrixWorld = ${ storage.transforms }[ objectIndex ].matrixWorld;
-				localShape.objectIndex = objectIndex;
-				return localShape;
-
-			}
-		`;
-
-		const transformResultFn = wgslTagFn/* wgsl */`
-			fn ${ prefix }TransformResult( result: ptr<function, ${ edgeOverlapResultStruct }>, objectIndex: u32 ) -> void {
-
-			}
-		`;
-
 		const traversalFn = this.getShapecastFn( {
-			name: prefix + '_traversal',
+			name: prefix + '_pair_traversal',
 			shapeStruct: edgeLineShapeStruct,
 			resultStruct: edgeOverlapResultStruct,
 			boundsOrderFn,
@@ -285,19 +391,21 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 			transformResultFn,
 		} );
 
-		// Thin wrapper: packs the line into an EdgeLineShape, runs the full
-		// TLAS/BLAS traversal (accumulating into the private buffer), then
-		// sorts and merges the resulting intervals.
 		return wgslTagFn/* wgsl */`
-			fn ${ prefix }( lineStart: vec3f, lineEnd: vec3f ) {
+			${ [ countLocalStorage, writePairsStorage ] }
+			fn ${ prefix }Traverse( edgeIndex: u32, lineStart: vec3f, lineEnd: vec3f, writePairs: u32 ) -> u32 {
+
+				${ prefix }_pairCountLocal = 0u;
+				${ prefix }_writePairs = writePairs;
 
 				var shape: ${ edgeLineShapeStruct };
 				shape.worldStart  = lineStart;
 				shape.worldEnd    = lineEnd;
 				shape.matrixWorld = mat4x4f( 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 );
 				shape.objectIndex = 0u;
+				shape.edgeIndex   = edgeIndex;
 				${ traversalFn }( shape );
-				${ sortAndMergeOverlaps }();
+				return ${ prefix }_pairCountLocal;
 
 			}
 		`;
