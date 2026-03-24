@@ -192,12 +192,13 @@ export class ComputeProjectionGenerator {
 
 				// check overflow: if no overflow occurred, the batch segment is fully processed.
 				const overflowBuf = await renderer.getArrayBufferAsync( overflowAttribute );
-				const overflowGlobalIndex = new Uint32Array( overflowBuf )[ 0 ];
-				if ( overflowGlobalIndex === 0xffffffff ) break;
+				const overflowLocalIndex = new Uint32Array( overflowBuf )[ 0 ];
+				if ( overflowLocalIndex === 0xffffffff ) break;
 
-				// advance past the processed edges. if there's no progress (e.g. a single edge
-				// exceeds the buffer capacity), skip it to avoid an infinite loop.
-				const nextRetryOffset = overflowGlobalIndex - headIndex;
+				// overflowLocalIndex is the minimum LOCAL edge index (0..currentCount-1) within
+				// this dispatch that could not write all its pairs. advance past edges before it.
+				// if it equals 0, the first edge alone exceeds buffer capacity — skip it.
+				const nextRetryOffset = retryOffset + overflowLocalIndex;
 				if ( nextRetryOffset <= retryOffset ) break;
 				retryOffset = nextRetryOffset;
 
