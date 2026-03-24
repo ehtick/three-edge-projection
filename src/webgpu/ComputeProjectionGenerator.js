@@ -49,6 +49,7 @@ export class ComputeProjectionGenerator {
 		}
 
 		edges = edges.filter( e => ! isYProjectedLineDegenerate( e ) );
+		if ( edges.length === 0 ) return new ProjectionResult();
 
 		// 3. construct an object bvh from the meshes and pack into a compute buffer.
 		// ProjectionGeneratorBVHComputeData auto-generates missing BVHs.
@@ -172,10 +173,12 @@ export class ComputeProjectionGenerator {
 						const overlapsU32 = new Uint32Array( overlapsBuf );
 						const overlapsF32 = new Float32Array( overlapsBuf );
 
+						// pair.edgeIndex is a LOCAL buffer index (0..currentCount-1); add the
+						// batch and retry offsets to recover the global edge index for the map key.
 						const stride = overlapRecordStruct.getLength(); // 3
 						for ( let i = 0; i < overlapCount; i ++ ) {
 
-							const edgeIndex = overlapsU32[ i * stride ];
+							const edgeIndex = headIndex + retryOffset + overlapsU32[ i * stride ];
 							const t0 = overlapsF32[ i * stride + 1 ];
 							const t1 = overlapsF32[ i * stride + 2 ];
 							if ( ! intervalsByEdge.has( edgeIndex ) ) intervalsByEdge.set( edgeIndex, [] );
