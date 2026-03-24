@@ -11,9 +11,9 @@ import { overlapsToLines } from '../utils/overlapUtils.js';
 import { ProjectionResult } from '../ProjectionGenerator.js';
 
 // TODO: edge splitting — long edges that span a large portion of the scene create heavy single-thread
-// work in kernels 1 and 2. splitting them into sub-edges at pack time (step 4) distributes that work
-// across more threads. each sub-edge would carry tStart/tEnd (its [0,1] range within the original edge)
-// so the GPU overlap t0/t1 values can be remapped back to original-edge space on the CPU before merging.
+// work in kernel 2. splitting them into sub-edges at pack time distributes that work across more
+// threads. each sub-edge would carry tStart/tEnd (its [0,1] range within the original edge) so the
+// GPU overlap t0/t1 values can be remapped back to original-edge space on the CPU before merging.
 
 export class ComputeProjectionGenerator {
 
@@ -105,82 +105,98 @@ export class ComputeProjectionGenerator {
 		const edgePairsKernel = new EdgePairsKernel( traversalFn, edgeStorage );
 		const edgeOverlapsKernel = new EdgeOverlapsKernel( overlapsFn );
 
-		// CPU loop - advances a head pointer through the edge list until all edges are processed:
+		// CPU loop - advances a head pointer through the edge list until all edges are processed
 		const edgeStructStride = edgeStruct.getLength();
 		const collector = new ProjectionResult();
 		let headIndex = 0;
 		while ( headIndex < edges.length ) {
 
 			const batchSize = Math.min( batchCapacity, edges.length - headIndex );
-
-			// pack the next batch of edges into the storage buffer
-			for ( let i = 0; i < batchSize; i ++ ) {
-
-				const edgeIndex = headIndex + i;
-				const { start, end } = edges[ edgeIndex ];
-				const offset = i * edgeStructStride;
-				start.toArray( edgeBufferData, offset );
-				end.toArray( edgeBufferData, offset + 3 );
-				edgeBufferDataU32[ offset + 6 ] = edgeIndex;
-
-			}
-
-			edgeBufferAttribute.needsUpdate = true;
-
-			// 5. kernel 2 (pairs): one thread per edge traverses the BVH and writes
-			//    { edgeIndex, objectIndex, triIndex } records to the pairs buffer.
-			//    pairCounts[0] (write offset) is claimed unconditionally by every qualifying pair;
-			//    pairCounts[1] (dispatch count) is incremented only for pairs that land within
-			//    capacity, giving an exact safe dispatch size for kernel 3 with no CPU clamping.
-			pairCountsData[ 0 ] = 0;
-			pairCountsData[ 1 ] = 0;
-			pairCountsAttribute.needsUpdate = true;
-			overflowData[ 0 ] = 0xffffffff;
-			overflowAttribute.needsUpdate = true;
-
-			edgePairsKernel.edgeCount = batchSize;
-			await renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchSize ) );
-
-			// 6. read back the dispatch count written by K2, then dispatch kernel 3.
-			//    using pairCounts[1] (successful writes only) means K3 never dispatches a
-			//    thread for a slot that wasn't actually written, even when the buffer overflows.
-			const pairCountsBuf = await renderer.getArrayBufferAsync( pairCountsAttribute );
-			const pairDispatchCount = new Uint32Array( pairCountsBuf )[ 1 ];
-
-			// 7. kernel 3 (overlaps): one thread per pair. each thread fetches the edge +
-			//    triangle, runs the overlap computation, and writes { edgeIndex, t0, t1 } to
-			//    the overlaps buffer via atomicAdd.
 			const intervalsByEdge = new Map();
-			if ( pairDispatchCount > 0 ) {
 
-				overlapCountData[ 0 ] = 0;
-				overlapCountAttribute.needsUpdate = true;
+			// K2+K3 retry loop — handles the case where the pairs buffer overflows by re-running
+			// from the first overflowing edge index until the entire batch is covered.
+			// retryOffset is the local index (within this batch) of the first unprocessed edge.
+			let retryOffset = 0;
+			while ( retryOffset < batchSize ) {
 
-				edgeOverlapsKernel.pairCount = pairDispatchCount;
-				await renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( pairDispatchCount ) );
+				const currentCount = batchSize - retryOffset;
 
-				// 8. read back the overlaps buffer and group intervals by edgeIndex.
-				const overlapCountBuf = await renderer.getArrayBufferAsync( overlapCountAttribute );
-				const overlapCount = Math.min( new Uint32Array( overlapCountBuf )[ 0 ], overlapsCapacity );
+				// pack edges [retryOffset .. batchSize-1] into positions [0 .. currentCount-1]
+				for ( let i = 0; i < currentCount; i ++ ) {
 
-				if ( overlapCount > 0 ) {
+					const edgeIndex = headIndex + retryOffset + i;
+					const { start, end } = edges[ edgeIndex ];
+					const offset = i * edgeStructStride;
+					start.toArray( edgeBufferData, offset );
+					end.toArray( edgeBufferData, offset + 3 );
+					edgeBufferDataU32[ offset + 6 ] = edgeIndex;
 
-					const overlapsBuf = await renderer.getArrayBufferAsync( overlapsAttribute );
-					const overlapsU32 = new Uint32Array( overlapsBuf );
-					const overlapsF32 = new Float32Array( overlapsBuf );
+				}
 
-					const stride = overlapRecordStruct.getLength(); // 3
-					for ( let i = 0; i < overlapCount; i ++ ) {
+				edgeBufferAttribute.needsUpdate = true;
 
-						const edgeIndex = overlapsU32[ i * stride ];
-						const t0 = overlapsF32[ i * stride + 1 ];
-						const t1 = overlapsF32[ i * stride + 2 ];
-						if ( ! intervalsByEdge.has( edgeIndex ) ) intervalsByEdge.set( edgeIndex, [] );
-						intervalsByEdge.get( edgeIndex ).push( [ t0, t1 ] );
+				// 5. kernel 2 (pairs): one thread per edge traverses the BVH and writes
+				//    { edgeIndex, objectIndex, triIndex } records. pairCounts[0] is the raw
+				//    write offset; pairCounts[1] is the number of valid writes for K3 dispatch.
+				pairCountsData[ 0 ] = 0;
+				pairCountsData[ 1 ] = 0;
+				pairCountsAttribute.needsUpdate = true;
+				overflowData[ 0 ] = 0xffffffff;
+				overflowAttribute.needsUpdate = true;
+
+				edgePairsKernel.edgeCount = currentCount;
+				await renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( currentCount ) );
+
+				// 6. read back dispatch count for K3 and the overflow sentinel.
+				const pairCountsBuf = await renderer.getArrayBufferAsync( pairCountsAttribute );
+				const pairDispatchCount = new Uint32Array( pairCountsBuf )[ 1 ];
+
+				// 7. kernel 3 (overlaps): one thread per valid pair. each thread runs the overlap
+				//    computation and writes { edgeIndex, t0, t1 } to the overlaps buffer.
+				if ( pairDispatchCount > 0 ) {
+
+					overlapCountData[ 0 ] = 0;
+					overlapCountAttribute.needsUpdate = true;
+
+					edgeOverlapsKernel.pairCount = pairDispatchCount;
+					await renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( pairDispatchCount ) );
+
+					// 8. read back overlaps and group intervals by edgeIndex.
+					const overlapCountBuf = await renderer.getArrayBufferAsync( overlapCountAttribute );
+					const overlapCount = Math.min( new Uint32Array( overlapCountBuf )[ 0 ], overlapsCapacity );
+
+					if ( overlapCount > 0 ) {
+
+						const overlapsBuf = await renderer.getArrayBufferAsync( overlapsAttribute );
+						const overlapsU32 = new Uint32Array( overlapsBuf );
+						const overlapsF32 = new Float32Array( overlapsBuf );
+
+						const stride = overlapRecordStruct.getLength(); // 3
+						for ( let i = 0; i < overlapCount; i ++ ) {
+
+							const edgeIndex = overlapsU32[ i * stride ];
+							const t0 = overlapsF32[ i * stride + 1 ];
+							const t1 = overlapsF32[ i * stride + 2 ];
+							if ( ! intervalsByEdge.has( edgeIndex ) ) intervalsByEdge.set( edgeIndex, [] );
+							intervalsByEdge.get( edgeIndex ).push( [ t0, t1 ] );
+
+						}
 
 					}
 
 				}
+
+				// check overflow: if no overflow occurred, the batch segment is fully processed.
+				const overflowBuf = await renderer.getArrayBufferAsync( overflowAttribute );
+				const overflowGlobalIndex = new Uint32Array( overflowBuf )[ 0 ];
+				if ( overflowGlobalIndex === 0xffffffff ) break;
+
+				// advance past the processed edges. if there's no progress (e.g. a single edge
+				// exceeds the buffer capacity), skip it to avoid an infinite loop.
+				const nextRetryOffset = overflowGlobalIndex - headIndex;
+				if ( nextRetryOffset <= retryOffset ) break;
+				retryOffset = nextRetryOffset;
 
 			}
 
@@ -210,9 +226,6 @@ export class ComputeProjectionGenerator {
 				overlapsToLines( edges[ edgeIndex ], merged, true, collector.hiddenEdges );
 
 			}
-
-			// TODO: overflow retry — if overflowData[0] !== 0xffffffff K2 overflowed; re-run K2+K3
-			//    starting from overflowData[0] before advancing the head pointer.
 
 			// 10. advance the head pointer for the next batch
 			headIndex += batchSize;
