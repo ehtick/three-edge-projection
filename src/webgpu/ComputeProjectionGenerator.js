@@ -5,7 +5,6 @@ import { EdgeGenerator } from '../EdgeGenerator.js';
 import { isYProjectedLineDegenerate } from '../utils/triangleLineUtils.js';
 import { ProjectionGeneratorBVHComputeData } from './ProjectionGeneratorBVHComputeData.js';
 import { edgeStruct, triEdgePairStruct, overlapRecordStruct } from './nodes/structs.wgsl.js';
-import { EdgeCountKernel } from './EdgeCountKernel.js';
 import { EdgePairsKernel } from './EdgePairsKernel.js';
 import { EdgeOverlapsKernel } from './EdgeOverlapsKernel.js';
 import { overlapsToLines } from '../utils/overlapUtils.js';
@@ -63,15 +62,17 @@ export class ComputeProjectionGenerator {
 		const edgeBufferAttribute = new StorageBufferAttribute( edgeBufferData, edgeStruct.getLength() );
 		const edgeStorage = storage( edgeBufferAttribute, edgeStruct ).toReadOnly().setName( 'edges' );
 
-		// 4. allocate the pairs buffer and all associated atomic counters.
+		// 4. allocate the pairs buffer and associated counters.
 		//    worst-case sizing: assume up to 64 triangle/edge pairs per edge on average.
 		const pairsCapacity = batchCapacity * 64;
 		const pairsCapacityUniform = uniform( pairsCapacity );
 
-		// atomic pair counter: element 0 holds the running count of written pairs
-		const pairCountData = new Uint32Array( 1 );
-		const pairCountAttribute = new StorageBufferAttribute( pairCountData, 1 );
-		const pairCountStorage = storage( pairCountAttribute, 'uint' ).toReadWrite().setName( 'pairCount' );
+		// pair counts buffer: 2-element array<atomic<u32>>
+		//   [0] write offset  — claimed unconditionally; allows threads to detect overflow
+		//   [1] dispatch count — incremented only on successful writes; safe dispatch size for K3
+		const pairCountsData = new Uint32Array( 2 );
+		const pairCountsAttribute = new StorageBufferAttribute( pairCountsData, 1 );
+		const pairCountsStorage = storage( pairCountsAttribute, 'uint' ).toReadWrite().setName( 'pairCounts' );
 
 		// overflow sentinel: pre-init to 0xffffffff; atomicMin from K2 records the first overflowing edgeIndex
 		const overflowData = new Uint32Array( 1 );
@@ -84,7 +85,7 @@ export class ComputeProjectionGenerator {
 		const pairsStorage = storage( pairsAttribute, triEdgePairStruct ).toReadWrite().setName( 'pairs' );
 
 		// build the traversal WGSL function (bakes in the four buffer nodes above)
-		const traversalFn = bvhComputeData.getTraversalFn( { pairsStorage, pairCountStorage, pairsCapacityUniform, overflowEdgeIndexStorage } );
+		const traversalFn = bvhComputeData.getTraversalFn( { pairsStorage, pairCountsStorage, pairsCapacityUniform, overflowEdgeIndexStorage } );
 
 		// overlaps buffer: one { edgeIndex, t0, t1 } record per overlap interval (at most one per pair)
 		const overlapsCapacity = pairsCapacity;
@@ -101,7 +102,6 @@ export class ComputeProjectionGenerator {
 		const overlapsFn = bvhComputeData.getOverlapsFn( { pairsStorage, edgesStorage: edgeStorage, overlapsStorage, overlapCountStorage, overlapCapacityUniform } );
 
 		// construct kernels — kernels are created once and reused across batches
-		const edgeCountKernel = new EdgeCountKernel( traversalFn, edgeStorage, pairCountStorage );
 		const edgePairsKernel = new EdgePairsKernel( traversalFn, edgeStorage );
 		const edgeOverlapsKernel = new EdgeOverlapsKernel( overlapsFn );
 
@@ -127,42 +127,37 @@ export class ComputeProjectionGenerator {
 
 			edgeBufferAttribute.needsUpdate = true;
 
-			// 5. kernel 1 (count): one thread per edge traverses the BVH and atomically accumulates
-			//    the total pair count into pairCount[0]. the count is read back here so that kernel 3
-			//    can be dispatched immediately after kernel 2 with no CPU round-trip in between.
-			pairCountData[ 0 ] = 0;
-			pairCountAttribute.needsUpdate = true;
-
-			edgeCountKernel.edgeCount = batchSize;
-			await renderer.compute( edgeCountKernel.kernel, edgeCountKernel.getDispatchSize( batchSize ) );
-
-			const pairCountBuffer = await renderer.getArrayBufferAsync( pairCountAttribute );
-			const pairCount = Math.min( new Uint32Array( pairCountBuffer )[ 0 ], pairsCapacity );
-
-			// 6. kernel 2 (pairs): one thread per edge traverses the BVH again and writes
-			//    { edgeIndex, objectIndex, triIndex } records to the pairs buffer using atomicAdd to
-			//    claim each slot. if the buffer is full the thread early-outs and records the first
-			//    overflowing edgeIndex via atomicMin so the caller can retry the remaining edges.
-			pairCountData[ 0 ] = 0;
-			pairCountAttribute.needsUpdate = true;
+			// 5. kernel 2 (pairs): one thread per edge traverses the BVH and writes
+			//    { edgeIndex, objectIndex, triIndex } records to the pairs buffer.
+			//    pairCounts[0] (write offset) is claimed unconditionally by every qualifying pair;
+			//    pairCounts[1] (dispatch count) is incremented only for pairs that land within
+			//    capacity, giving an exact safe dispatch size for kernel 3 with no CPU clamping.
+			pairCountsData[ 0 ] = 0;
+			pairCountsData[ 1 ] = 0;
+			pairCountsAttribute.needsUpdate = true;
 			overflowData[ 0 ] = 0xffffffff;
 			overflowAttribute.needsUpdate = true;
 
 			edgePairsKernel.edgeCount = batchSize;
 			await renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchSize ) );
 
-			// 7. kernel 3 (overlaps): dispatched immediately after K2 using the count from K1 —
-			//    no readback needed between K2 and K3. each thread fetches the edge + triangle,
-			//    runs the overlap computation, and writes { edgeIndex, t0, t1 } to the overlaps
-			//    buffer via atomicAdd.
+			// 6. read back the dispatch count written by K2, then dispatch kernel 3.
+			//    using pairCounts[1] (successful writes only) means K3 never dispatches a
+			//    thread for a slot that wasn't actually written, even when the buffer overflows.
+			const pairCountsBuf = await renderer.getArrayBufferAsync( pairCountsAttribute );
+			const pairDispatchCount = new Uint32Array( pairCountsBuf )[ 1 ];
+
+			// 7. kernel 3 (overlaps): one thread per pair. each thread fetches the edge +
+			//    triangle, runs the overlap computation, and writes { edgeIndex, t0, t1 } to
+			//    the overlaps buffer via atomicAdd.
 			const intervalsByEdge = new Map();
-			if ( pairCount > 0 ) {
+			if ( pairDispatchCount > 0 ) {
 
 				overlapCountData[ 0 ] = 0;
 				overlapCountAttribute.needsUpdate = true;
 
-				edgeOverlapsKernel.pairCount = pairCount;
-				await renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( pairCount ) );
+				edgeOverlapsKernel.pairCount = pairDispatchCount;
+				await renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( pairDispatchCount ) );
 
 				// 8. read back the overlaps buffer and group intervals by edgeIndex.
 				const overlapCountBuf = await renderer.getArrayBufferAsync( overlapCountAttribute );

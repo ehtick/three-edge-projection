@@ -283,11 +283,18 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	// When writePairs is non-zero it also claims atomic slots in the pairs buffer and writes
 	// { edgeIndex, objectIndex, triIndex } records; if the buffer overflows the first overflowing
 	// edgeIndex is recorded via atomicMin so the caller can retry the remaining edges.
-	// The count is always returned so kernel 1 can atomically add it to the shared total.
+	// The count is always returned.
 	//
-	// NOTE: pairCountStorage / overflowEdgeIndexStorage must be bound as array<atomic<u32>> (read_write storage).
-	//       overflowEdgeIndexStorage must be pre-initialised to 0xffffffffu before a write pass.
-	getTraversalFn( { pairsStorage, pairCountStorage, pairsCapacityUniform, overflowEdgeIndexStorage } ) {
+	// pairCountsStorage is a 2-element array<atomic<u32>>:
+	//   [0] write offset — claimed unconditionally via atomicAdd; allows subsequent threads to
+	//       detect overflow without racing for a valid slot
+	//   [1] dispatch count — incremented only when the claimed slot is within capacity; equals
+	//       the number of valid pair records written and is safe to use as K3's dispatch size
+	//
+	// NOTE: pairCountsStorage / overflowEdgeIndexStorage must be bound as array<atomic<u32>> (read_write storage).
+	//       pairCountsStorage must be pre-cleared to { 0, 0 } and overflowEdgeIndexStorage to
+	//       0xffffffffu before each write pass.
+	getTraversalFn( { pairsStorage, pairCountsStorage, pairsCapacityUniform, overflowEdgeIndexStorage } ) {
 
 		const { storage, prefix } = this;
 		const { boundsOrderFn, intersectsBoundsFn, transformShapeFn, transformResultFn } = this._buildSharedFns();
@@ -358,12 +365,13 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					// claim a slot and write the pair record when in write mode
 					if ( ${ prefix }_writePairs != 0u ) {
 
-						let slot = atomicAdd( &${ pairCountStorage }[ 0 ], 1u );
+						let slot = atomicAdd( &${ pairCountsStorage }[ 0 ], 1u );
 						if ( slot < ${ pairsCapacityUniform } ) {
 
 							${ pairsStorage }[ slot ].edgeIndex   = shape.edgeIndex;
 							${ pairsStorage }[ slot ].objectIndex = shape.objectIndex;
 							${ pairsStorage }[ slot ].triIndex    = ti;
+							atomicAdd( &${ pairCountsStorage }[ 1 ], 1u );
 
 						} else {
 
