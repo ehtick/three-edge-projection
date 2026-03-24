@@ -52,6 +52,29 @@ function toLineGeometry( edges ) {
 
 }
 
+export class ProjectionResult {
+
+	constructor() {
+
+		this.visibleEdges = [];
+		this.hiddenEdges = [];
+
+	}
+
+	getVisibleLineGeometry() {
+
+		return toLineGeometry( this.visibleEdges );
+
+	}
+
+	getHiddenLineGeometry() {
+
+		return toLineGeometry( this.hiddenEdges );
+
+	}
+
+}
+
 class ProjectedEdgeCollector {
 
 	constructor( scene ) {

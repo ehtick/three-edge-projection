@@ -9,6 +9,7 @@ import { EdgeCountKernel } from './EdgeCountKernel.js';
 import { EdgePairsKernel } from './EdgePairsKernel.js';
 import { EdgeOverlapsKernel } from './EdgeOverlapsKernel.js';
 import { overlapsToLines } from '../utils/overlapUtils.js';
+import { ProjectionResult } from '../ProjectionGenerator.js';
 
 // TODO: edge splitting — long edges that span a large portion of the scene create heavy single-thread
 // work in kernels 1 and 2. splitting them into sub-edges at pack time (step 4) distributes that work
@@ -106,7 +107,7 @@ export class ComputeProjectionGenerator {
 
 		// CPU loop - advances a head pointer through the edge list until all edges are processed:
 		const edgeStructStride = edgeStruct.getLength();
-		const result = [];
+		const collector = new ProjectionResult();
 		let headIndex = 0;
 		while ( headIndex < edges.length ) {
 
@@ -127,13 +128,16 @@ export class ComputeProjectionGenerator {
 			edgeBufferAttribute.needsUpdate = true;
 
 			// 5. kernel 1 (count): one thread per edge traverses the BVH and atomically accumulates
-			//    the total number of triangle/edge pairs into pairCount[0].  the result feeds K3's
-			//    indirect dispatch buffer (not yet implemented).
+			//    the total pair count into pairCount[0]. the count is read back here so that kernel 3
+			//    can be dispatched immediately after kernel 2 with no CPU round-trip in between.
 			pairCountData[ 0 ] = 0;
 			pairCountAttribute.needsUpdate = true;
 
 			edgeCountKernel.edgeCount = batchSize;
 			await renderer.compute( edgeCountKernel.kernel, edgeCountKernel.getDispatchSize( batchSize ) );
+
+			const pairCountBuffer = await renderer.getArrayBufferAsync( pairCountAttribute );
+			const pairCount = Math.min( new Uint32Array( pairCountBuffer )[ 0 ], pairsCapacity );
 
 			// 6. kernel 2 (pairs): one thread per edge traverses the BVH again and writes
 			//    { edgeIndex, objectIndex, triIndex } records to the pairs buffer using atomicAdd to
@@ -147,12 +151,11 @@ export class ComputeProjectionGenerator {
 			edgePairsKernel.edgeCount = batchSize;
 			await renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchSize ) );
 
-			// 7. kernel 3 (overlaps): read back K2's pair count, then dispatch one thread per pair.
-			//    each thread fetches the edge + triangle, runs the overlap computation, and writes
-			//    { edgeIndex, t0, t1 } to the overlaps buffer via atomicAdd.
-			const pairCountBuffer = await renderer.getArrayBufferAsync( pairCountAttribute );
-			const pairCount = Math.min( new Uint32Array( pairCountBuffer )[ 0 ], pairsCapacity );
-
+			// 7. kernel 3 (overlaps): dispatched immediately after K2 using the count from K1 —
+			//    no readback needed between K2 and K3. each thread fetches the edge + triangle,
+			//    runs the overlap computation, and writes { edgeIndex, t0, t1 } to the overlaps
+			//    buffer via atomicAdd.
+			const intervalsByEdge = new Map();
 			if ( pairCount > 0 ) {
 
 				overlapCountData[ 0 ] = 0;
@@ -161,8 +164,7 @@ export class ComputeProjectionGenerator {
 				edgeOverlapsKernel.pairCount = pairCount;
 				await renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( pairCount ) );
 
-				// 8. read back the overlaps buffer, group intervals by edgeIndex, merge overlapping
-				//    [t0, t1] ranges per edge on the CPU, and convert to line segments.
+				// 8. read back the overlaps buffer and group intervals by edgeIndex.
 				const overlapCountBuf = await renderer.getArrayBufferAsync( overlapCountAttribute );
 				const overlapCount = Math.min( new Uint32Array( overlapCountBuf )[ 0 ], overlapsCapacity );
 
@@ -172,9 +174,7 @@ export class ComputeProjectionGenerator {
 					const overlapsU32 = new Uint32Array( overlapsBuf );
 					const overlapsF32 = new Float32Array( overlapsBuf );
 
-					// group intervals by edgeIndex
 					const stride = overlapRecordStruct.getLength(); // 3
-					const intervalsByEdge = new Map();
 					for ( let i = 0; i < overlapCount; i ++ ) {
 
 						const edgeIndex = overlapsU32[ i * stride ];
@@ -185,42 +185,46 @@ export class ComputeProjectionGenerator {
 
 					}
 
-					// sort, merge, and convert each edge's intervals to visible line segments
-					for ( const [ edgeIndex, intervals ] of intervalsByEdge ) {
+				}
 
-						intervals.sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
-						const merged = [];
-						for ( const [ t0, t1 ] of intervals ) {
+			}
 
-							if ( merged.length === 0 || t0 > merged[ merged.length - 1 ][ 1 ] ) {
+			// 9. sort, merge, and convert each edge's hidden intervals to visible/hidden line segments.
+			//    edges absent from intervalsByEdge had no occluding triangles and are fully visible.
+			for ( let i = 0; i < batchSize; i ++ ) {
 
-								merged.push( [ t0, t1 ] );
+				const edgeIndex = headIndex + i;
+				const intervals = intervalsByEdge.get( edgeIndex ) || [];
+				intervals.sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
+				const merged = [];
+				for ( const [ t0, t1 ] of intervals ) {
 
-							} else {
+					if ( merged.length === 0 || t0 > merged[ merged.length - 1 ][ 1 ] ) {
 
-								merged[ merged.length - 1 ][ 1 ] = Math.max( merged[ merged.length - 1 ][ 1 ], t1 );
+						merged.push( [ t0, t1 ] );
 
-							}
+					} else {
 
-						}
-
-						overlapsToLines( edges[ edgeIndex ], merged, false, result );
+						merged[ merged.length - 1 ][ 1 ] = Math.max( merged[ merged.length - 1 ][ 1 ], t1 );
 
 					}
 
 				}
+
+				overlapsToLines( edges[ edgeIndex ], merged, false, collector.visibleEdges );
+				overlapsToLines( edges[ edgeIndex ], merged, true, collector.hiddenEdges );
 
 			}
 
 			// TODO: overflow retry — if overflowData[0] !== 0xffffffff K2 overflowed; re-run K2+K3
 			//    starting from overflowData[0] before advancing the head pointer.
 
-			// 9. advance the head pointer for the next batch
+			// 10. advance the head pointer for the next batch
 			headIndex += batchSize;
 
 		}
 
-		return result;
+		return collector;
 
 	}
 
