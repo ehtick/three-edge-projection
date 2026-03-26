@@ -101,7 +101,7 @@ export class ComputeProjectionGenerator {
 		bvhComputeData.update();
 		bvhComputeData.fns.collectTriEdgePairs = bvhComputeData.getCollectTriEdgePairsFn( {
 			pairsStorage: storage( triEdgePairsAttribute, triEdgePairStruct ).setName( 'triEdges' ),
-			pairCountsStorage: storage( triEdgePairsSizeAttribute, 'uint' ).setName( 'triEdgesSize' ),
+			pairCountsStorage: storage( triEdgePairsSizeAttribute, 'uint' ).setName( 'triEdgesSize' ).toAtomic(),
 			overflowFlagStorage: storage( overflowFlagAttribute, 'uint' ).setName( 'overflowFlag' ).toAtomic(),
 		} );
 		bvhComputeData.fns.collectTriEdgeOverlaps = bvhComputeData.getTriangleEdgeOverlapsFn( {
@@ -123,10 +123,10 @@ export class ComputeProjectionGenerator {
 		//
 
 		// accumulate potential triangle-edge overlap pairs
-		renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( edgeBatchCapacity ) );
+		renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchCapacity ) );
 
 		// generate all overlaps
-		renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( edgeBatchCapacity * 64 ) );
+		renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( batchCapacity * 64 ) );
 
 		//
 
