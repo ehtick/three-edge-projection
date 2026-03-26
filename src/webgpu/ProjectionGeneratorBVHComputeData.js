@@ -1,6 +1,5 @@
 import { BackSide, BufferAttribute, BufferGeometry, DoubleSide, FrontSide, SkinnedMesh } from 'three';
 import { StructTypeNode } from 'three/webgpu';
-import { wgsl } from 'three/tsl';
 import { BVHComputeData } from './lib/BVHComputeData.js';
 import { MeshBVH, SAH, SkinnedMeshBVH } from 'three-mesh-bvh';
 import { wgslTagFn } from './lib/nodes/WGSLTagFnNode.js';
@@ -185,29 +184,24 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		const { DIST_EPSILON } = overlapConstants;
 
 		return wgslTagFn/* wgsl */`
-			fn ${ prefix }ComputeOverlap( pairIndex: u32 ) -> void {
-
-				let pair     = ${ pairsStorage }[ pairIndex ];
-				let edgeIdx  = pair.edgeIndex;
-				let objIdx   = pair.objectIndex;
-				let ti       = pair.triIndex;
+			fn ${ prefix }ComputeOverlap( edgeIndex: u32, objectIndex: u32, triIndex: u32 ) -> void {
 
 				let lineWorldStart = vec3f(
-					${ edgesStorage }[ edgeIdx ].start[ 0 ],
-					${ edgesStorage }[ edgeIdx ].start[ 1 ],
-					${ edgesStorage }[ edgeIdx ].start[ 2 ]
+					${ edgesStorage }[ edgeIndex ].start[ 0 ],
+					${ edgesStorage }[ edgeIndex ].start[ 1 ],
+					${ edgesStorage }[ edgeIndex ].start[ 2 ]
 				);
 				let lineWorldEnd = vec3f(
-					${ edgesStorage }[ edgeIdx ].end[ 0 ],
-					${ edgesStorage }[ edgeIdx ].end[ 1 ],
-					${ edgesStorage }[ edgeIdx ].end[ 2 ]
+					${ edgesStorage }[ edgeIndex ].end[ 0 ],
+					${ edgesStorage }[ edgeIndex ].end[ 1 ],
+					${ edgesStorage }[ edgeIndex ].end[ 2 ]
 				);
 
-				let i0 = ${ storage.index }[ ti * 3u ];
-				let i1 = ${ storage.index }[ ti * 3u + 1u ];
-				let i2 = ${ storage.index }[ ti * 3u + 2u ];
+				let i0 = ${ storage.index }[ triIndex * 3u ];
+				let i1 = ${ storage.index }[ triIndex * 3u + 1u ];
+				let i2 = ${ storage.index }[ triIndex * 3u + 2u ];
 
-				let matrixWorld = ${ storage.transforms }[ objIdx ].matrixWorld;
+				let matrixWorld = ${ storage.transforms }[ objectIndex ].matrixWorld;
 				let a = ( matrixWorld * vec4f( ${ storage.attributes }[ i0 ].position.xyz, 1.0 ) ).xyz;
 				let b = ( matrixWorld * vec4f( ${ storage.attributes }[ i1 ].position.xyz, 1.0 ) ).xyz;
 				let c = ( matrixWorld * vec4f( ${ storage.attributes }[ i2 ].position.xyz, 1.0 ) ).xyz;
@@ -215,7 +209,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				// back-face cull based on per-object side (0=double, 1=front, -1=back)
 				let inverted  = determinant( matrixWorld ) < 0.0;
 				let triNormal = cross( b - a, c - a );
-				let side = ${ storage.transforms }[ objIdx ].side;
+				let side = ${ storage.transforms }[ objectIndex ].side;
 				if ( side != 0 ) {
 
 					let isFrontUp = ( triNormal.y > 0.0 ) != inverted;
@@ -267,7 +261,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				let slot = atomicAdd( &${ overlapCountStorage }[ 0 ], 1u );
 				if ( slot < ${ overlapCapacityUniform } ) {
 
-					${ overlapsStorage }[ slot ].edgeIndex = edgeIdx;
+					${ overlapsStorage }[ slot ].edgeIndex = edgeIndex;
 					${ overlapsStorage }[ slot ].t0        = t0;
 					${ overlapsStorage }[ slot ].t1        = t1;
 
@@ -294,16 +288,12 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	// NOTE: pairCountsStorage / overflowEdgeIndexStorage must be bound as array<atomic<u32>> (read_write storage).
 	//       pairCountsStorage must be pre-cleared to { 0, 0 } and overflowEdgeIndexStorage to
 	//       0xffffffffu before each write pass.
-	getTraversalFn( { pairsStorage, pairCountsStorage, pairsCapacityUniform, overflowEdgeIndexStorage } ) {
+	getWritePairsFn( { pairsStorage, pairCountsStorage, pairsCapacityUniform, overflowEdgeIndexStorage } ) {
 
 		const { storage, prefix } = this;
 		const { boundsOrderFn, intersectsBoundsFn, transformShapeFn, transformResultFn } = this._buildSharedFns();
 
-		const countLocalStorage = wgsl( /* wgsl */`var<private> ${ prefix }_pairCountLocal : u32 = 0u;` );
-		const writePairsStorage = wgsl( /* wgsl */`var<private> ${ prefix }_writePairs : u32 = 0u;` );
-
 		const intersectRangeFn = wgslTagFn/* wgsl */`
-			${ [ countLocalStorage, writePairsStorage ] }
 			fn ${ prefix }TraverseRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, bestDist: f32 ) -> ${ edgeOverlapResultStruct } {
 
 				var result: ${ edgeOverlapResultStruct };
@@ -360,24 +350,18 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					}
 
-					${ prefix }_pairCountLocal = ${ prefix }_pairCountLocal + 1u;
-
 					// claim a slot and write the pair record when in write mode
-					if ( ${ prefix }_writePairs != 0u ) {
+					let slot = atomicAdd( &${ pairCountsStorage }[ 0 ], 1u );
+					if ( slot < ${ pairsCapacityUniform } ) {
 
-						let slot = atomicAdd( &${ pairCountsStorage }[ 0 ], 1u );
-						if ( slot < ${ pairsCapacityUniform } ) {
+						${ pairsStorage }[ slot ].edgeIndex   = shape.edgeIndex;
+						${ pairsStorage }[ slot ].objectIndex = shape.objectIndex;
+						${ pairsStorage }[ slot ].triIndex    = ti;
+						atomicAdd( &${ pairCountsStorage }[ 1 ], 1u );
 
-							${ pairsStorage }[ slot ].edgeIndex   = shape.edgeIndex;
-							${ pairsStorage }[ slot ].objectIndex = shape.objectIndex;
-							${ pairsStorage }[ slot ].triIndex    = ti;
-							atomicAdd( &${ pairCountsStorage }[ 1 ], 1u );
+					} else {
 
-						} else {
-
-							atomicMin( &${ overflowEdgeIndexStorage }[ 0 ], shape.edgeIndex );
-
-						}
+						atomicMin( &${ overflowEdgeIndexStorage }[ 0 ], shape.edgeIndex );
 
 					}
 
@@ -400,20 +384,20 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		} );
 
 		return wgslTagFn/* wgsl */`
-			${ [ countLocalStorage, writePairsStorage ] }
-			fn ${ prefix }Traverse( edgeIndex: u32, lineStart: vec3f, lineEnd: vec3f, writePairs: u32 ) -> u32 {
-
-				${ prefix }_pairCountLocal = 0u;
-				${ prefix }_writePairs = writePairs;
+			fn ${ prefix }Traverse( edgeIndex: u32, lineStart: vec3f, lineEnd: vec3f ) -> void {
 
 				var shape: ${ edgeLineShapeStruct };
 				shape.worldStart  = lineStart;
 				shape.worldEnd    = lineEnd;
-				shape.matrixWorld = mat4x4f( 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 );
+				shape.matrixWorld = mat4x4f(
+					1.0, 0.0, 0.0, 0.0,
+					0.0, 1.0, 0.0, 0.0,
+					0.0, 0.0, 1.0, 0.0,
+					0.0, 0.0, 0.0, 1.0
+				);
 				shape.objectIndex = 0u;
 				shape.edgeIndex   = edgeIndex;
 				${ traversalFn }( shape );
-				return ${ prefix }_pairCountLocal;
 
 			}
 		`;

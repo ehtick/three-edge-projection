@@ -20,7 +20,7 @@ import { ComputeProjectionGenerator } from '../src/webgpu/ComputeProjectionGener
 const params = {
 	displayModel: true,
 	displayDrawThroughProjection: false,
-	includeIntersectionEdges: true,
+	includeIntersectionEdges: false,
 	regenerate: () => {
 
 		updateEdges();
