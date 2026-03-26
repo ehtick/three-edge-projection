@@ -107,9 +107,6 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	// one (edge, triangle) pair record, fetches the edge endpoints and triangle vertices,
 	// runs the single-triangle overlap computation, and atomically writes the resulting
 	// [t0, t1] interval to the overlaps buffer if one exists.
-	//
-	// NOTE: overlapsCountStorage must be bound as array<atomic<u32>> (read_write storage)
-	//       and pre-cleared to 0 before dispatch.
 	getTriangleEdgeOverlapsFn( { edgesStorage, overlapsStorage, overlapsCountStorage } ) {
 
 		const { storage } = this;
@@ -206,22 +203,19 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 	}
 
-	// Returns a WGSL function — fn prefix_Traverse( edgeIndex, lineStart, lineEnd, writePairs: u32 ) -> u32 —
-	// that traverses the BVH for one edge and counts qualifying (edge, triangle) pairs.
-	// When writePairs is non-zero it also claims atomic slots in the pairs buffer and writes
-	// { edgeIndex, objectIndex, triIndex } records; if the buffer overflows the first overflowing
-	// edgeIndex is recorded via atomicMin so the caller can retry the remaining edges.
-	// The count is always returned.
+	// Returns a WGSL function — fn traverse( edgeIndex, lineStart, lineEnd ) -> void —
+	// that traverses the BVH for one edge and writes qualifying { edgeIndex, objectIndex, triIndex }
+	// records to the pairs buffer using atomic slot claiming.
 	//
 	// pairCountsStorage is a 2-element array<atomic<u32>>:
-	//   [0] write offset — claimed unconditionally via atomicAdd; allows subsequent threads to
-	//       detect overflow without racing for a valid slot
+	//   [0] write offset — claimed unconditionally via atomicAdd
 	//   [1] dispatch count — incremented only when the claimed slot is within capacity; equals
-	//       the number of valid pair records written and is safe to use as K3's dispatch size
+	//       the number of valid pair records written and is used as K3's dispatch bound
 	//
-	// NOTE: pairCountsStorage / overflowEdgeIndexStorage must be bound as array<atomic<u32>> (read_write storage).
-	//       pairCountsStorage must be pre-cleared to { 0, 0 } and overflowEdgeIndexStorage to
-	//       0xffffffffu before each write pass.
+	// overflowFlagStorage is a 1-element array<atomic<u32>> that accumulates the number of
+	// pairs that could not be written due to buffer overflow.
+	//
+	// NOTE: pairCountsStorage must be bound as array<atomic<u32>> (read_write storage).
 	getCollectTriEdgePairsFn( { pairsStorage, pairCountsStorage, overflowFlagStorage } ) {
 
 		const { storage } = this;
@@ -345,7 +339,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					// claim a slot and write the pair record when in write mode
 					let slot = atomicAdd( &${ pairCountsStorage }[ 0 ], 1u );
-					if ( slot < ${ pairsCapacityUniform } ) {
+					if ( slot < arrayLength( pairCountsStorage ) ) {
 
 						${ pairsStorage }[ slot ].edgeIndex   = shape.edgeIndex;
 						${ pairsStorage }[ slot ].objectIndex = shape.objectIndex;

@@ -29,9 +29,10 @@ export class EdgeOverlapsKernel extends ComputeKernel {
 		const shader = wgslTagFn/* wgsl */`
 			fn compute( globalId: vec3u ) -> void {
 
+				// pairsSize includes the total amount of pairs written to the
+				// original buffer
 				let pairIndex = globalId.x;
-				let pairLength = arrayLength( ${ params.pairs } );
-				if ( pairIndex >= pairLength ) {
+				if ( pairIndex >= ${ params.pairsSize }[ 1 ] ) {
 
 					return;
 
