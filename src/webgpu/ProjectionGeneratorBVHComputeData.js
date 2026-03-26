@@ -11,7 +11,6 @@ import {
 	getProjectedOverlapRange,
 	isLineTriangleEdge,
 } from './nodes/overlapFunctions.wgsl.js';
-import { uniform } from 'three/tsl';
 
 // Shape struct carrying world-space line endpoints plus the object-to-world
 // matrix (set by transformShapeFn; identity at top level so world-space
@@ -112,8 +111,6 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		const { storage } = this;
 		const { DIST_EPSILON } = overlapConstants;
 
-		const overlapCapacityUniform = uniform( overlapsStorage.value.count );
-
 		return wgslTagFn/* wgsl */`
 			fn computeTriangleEdgeOverlap( edgeIndex: u32, objectIndex: u32, triIndex: u32 ) -> void {
 
@@ -190,7 +187,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				// claim a slot and write the overlap record
 				let slot = atomicAdd( &${ overlapsCountStorage }[ 0 ], 1u );
-				if ( slot < ${ overlapCapacityUniform } ) {
+				if ( slot < arrayLength( overlapsStorage ) ) {
 
 					${ overlapsStorage }[ slot ].edgeIndex = edgeIndex;
 					${ overlapsStorage }[ slot ].t0        = t0;
@@ -219,8 +216,6 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	getCollectTriEdgePairsFn( { pairsStorage, pairCountsStorage, overflowFlagStorage } ) {
 
 		const { storage } = this;
-
-		const pairsCapacityUniform = uniform( pairsStorage.value.count );
 
 		const boundsOrderFn = wgslTagFn/* wgsl */`
 			fn boundsOrder( shape: ${ edgeLineShapeStruct }, splitAxis: u32, node: ${ bvhNodeStruct } ) -> bool {
@@ -339,7 +334,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					// claim a slot and write the pair record when in write mode
 					let slot = atomicAdd( &${ pairCountsStorage }[ 0 ], 1u );
-					if ( slot < arrayLength( pairCountsStorage ) ) {
+					if ( slot < arrayLength( ${ pairsStorage } ) ) {
 
 						${ pairsStorage }[ slot ].edgeIndex   = shape.edgeIndex;
 						${ pairsStorage }[ slot ].objectIndex = shape.objectIndex;
