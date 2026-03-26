@@ -1,5 +1,5 @@
 import { IndirectStorageBufferAttribute, StorageBufferAttribute } from 'three/webgpu';
-import { storage, uniform } from 'three/tsl';
+import { storage } from 'three/tsl';
 import { getAllMeshes } from '../utils/getAllMeshes.js';
 import { EdgeGenerator } from '../EdgeGenerator.js';
 import { isYProjectedLineDegenerate } from '../utils/triangleLineUtils.js';
@@ -104,7 +104,7 @@ export class ComputeProjectionGenerator {
 			pairCountsStorage: storage( triEdgePairsSizeAttribute, 'uint' ).setName( 'triEdgesSize' ),
 			overflowFlagStorage: storage( overflowFlagAttribute, 'uint' ).setName( 'overflowFlag' ).toAtomic(),
 		} );
-		bvhComputeData.fns.computeTriangleEdgeOverlap = bvhComputeData.getTriangleEdgeOverlapsFn( {
+		bvhComputeData.fns.collectTriEdgeOverlaps = bvhComputeData.getTriangleEdgeOverlapsFn( {
 			edgesStorage: storage( edgeBufferAttribute, edgeStruct ).setName( 'edges' ),
 			overlapsStorage: storage( overlapsAttribute, overlapRecordStruct ).setName( 'overlaps' ),
 			overlapsCountStorage: storage( overlapsSizeAttribute, 'uint' ).setName( 'overlapsCount' ).toAtomic(),

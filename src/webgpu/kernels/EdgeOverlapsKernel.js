@@ -24,7 +24,7 @@ export class EdgeOverlapsKernel extends ComputeKernel {
 			pairsSize: storage( new StorageBufferAttribute( 1, 1, Uint32Array ), triEdgePairStruct ).toReadOnly().setName( 'triEdgesSize' ),
 		};
 
-		const overlapsFn = proxyFn( params, 'bvhData.fns.writeOverlaps' );
+		const overlapsFn = proxyFn( params, 'bvhData.fns.collectTriEdgeOverlaps' );
 
 		const shader = wgslTagFn/* wgsl */`
 			fn compute( globalId: vec3u ) -> void {

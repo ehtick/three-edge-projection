@@ -5,14 +5,7 @@ import { proxyFn } from '../lib/nodes/NodeProxy.js';
 import { StorageBufferAttribute } from 'three/webgpu';
 import { edgeStruct } from '../nodes/structs.wgsl.js';
 
-// Traverses the BVH for each edge and writes qualifying (edgeIndex, objectIndex, triIndex)
-// records to the pairs buffer using atomic slot claiming.  If the buffer overflows, the
-// lowest overflowing edgeIndex is recorded and the caller can retry the remaining edges
-// by re-running kernels 2 and 3 from that point.
-//
-// traversalFn is obtained from ProjectionGeneratorBVHComputeData.getTraversalFn() and
-// already has the pairs buffer, pairCountNode, pairsCapacityNode, and overflowEdgeIndexNode
-// captured inside it; passing writePairs=1 activates the write path.
+// kernel for gathering pairs of triangles / edges that have a potential overlap
 export class EdgePairsKernel extends ComputeKernel {
 
 	constructor() {
@@ -24,7 +17,7 @@ export class EdgePairsKernel extends ComputeKernel {
 		};
 
 		const edges = params.edges;
-		const traversalFn = proxyFn( params, 'bvhData.fns.gatherTriangles' );
+		const traversalFn = proxyFn( params, 'bvhData.fns.collectTriEdgePairs' );
 		const shader = wgslTagFn/* wgsl */`
 			fn compute( globalId: vec3u ) -> void {
 
@@ -47,7 +40,7 @@ export class EdgePairsKernel extends ComputeKernel {
 					${ edges }[ edgeIndex ].end[ 2 ]
 				);
 
-				${ traversalFn }( edgeIndex, edgeStart, edgeEnd, 1u );
+				${ traversalFn }( edgeIndex, edgeStart, edgeEnd );
 
 			}
 		`;
