@@ -187,7 +187,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				// claim a slot and write the overlap record
 				let slot = atomicAdd( &${ overlapsCountStorage }[ 0 ], 1u );
-				if ( slot < arrayLength( overlapsStorage ) ) {
+				if ( slot < arrayLength( ${ overlapsStorage } ) ) {
 
 					${ overlapsStorage }[ slot ].edgeIndex = edgeIndex;
 					${ overlapsStorage }[ slot ].t0        = t0;
