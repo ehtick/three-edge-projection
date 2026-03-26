@@ -11,6 +11,7 @@ import {
 	getProjectedOverlapRange,
 	isLineTriangleEdge,
 } from './nodes/overlapFunctions.wgsl.js';
+import { uniform } from 'three/tsl';
 
 // Shape struct carrying world-space line endpoints plus the object-to-world
 // matrix (set by transformShapeFn; identity at top level so world-space
@@ -102,89 +103,22 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 	}
 
-	_buildSharedFns() {
-
-		if ( this._sharedFns ) return this._sharedFns;
-
-		const { storage, prefix } = this;
-
-		const boundsOrderFn = wgslTagFn/* wgsl */`
-			fn ${ prefix }BoundsOrder( shape: ${ edgeLineShapeStruct }, splitAxis: u32, node: ${ bvhNodeStruct } ) -> bool {
-
-				return true;
-
-			}
-		`;
-
-		const intersectsBoundsFn = wgslTagFn/* wgsl */`
-			fn ${ prefix }IntersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> f32 {
-
-				// Transform bounds to world space. At the top level the shape matrix
-				// is identity, so world-space bounds pass through unchanged.
-				let aabb = ${ transformBVHBounds }( bounds, shape.matrixWorld );
-
-				// Y-cull: bounds entirely below the line
-				if ( aabb.max[ 1 ] <= min( shape.worldStart.y, shape.worldEnd.y ) ) {
-
-					return - 1.0;
-
-				}
-
-				// XZ cull against the line's world-space XZ extents
-				let lineMinX = min( shape.worldStart.x, shape.worldEnd.x );
-				let lineMaxX = max( shape.worldStart.x, shape.worldEnd.x );
-				let lineMinZ = min( shape.worldStart.z, shape.worldEnd.z );
-				let lineMaxZ = max( shape.worldStart.z, shape.worldEnd.z );
-				if (
-					aabb.max[ 0 ] < lineMinX || aabb.min[ 0 ] > lineMaxX ||
-					aabb.max[ 2 ] < lineMinZ || aabb.min[ 2 ] > lineMaxZ
-				) {
-
-					return - 1.0;
-
-				}
-
-				return 0.0;
-
-			}
-		`;
-
-		const transformShapeFn = wgslTagFn/* wgsl */`
-			fn ${ prefix }TransformShape( shape: ${ edgeLineShapeStruct }, inverseMatrix: mat4x4f, objectIndex: u32 ) -> ${ edgeLineShapeStruct } {
-
-				var localShape = shape;
-				localShape.matrixWorld = ${ storage.transforms }[ objectIndex ].matrixWorld;
-				localShape.objectIndex = objectIndex;
-				return localShape;
-
-			}
-		`;
-
-		const transformResultFn = wgslTagFn/* wgsl */`
-			fn ${ prefix }TransformResult( result: ptr<function, ${ edgeOverlapResultStruct }>, objectIndex: u32 ) -> void {
-
-			}
-		`;
-
-		this._sharedFns = { boundsOrderFn, intersectsBoundsFn, transformShapeFn, transformResultFn };
-		return this._sharedFns;
-
-	}
-
 	// Returns a WGSL function — fn prefix_ComputeOverlap( pairIndex: u32 ) -> void — that reads
 	// one (edge, triangle) pair record, fetches the edge endpoints and triangle vertices,
 	// runs the single-triangle overlap computation, and atomically writes the resulting
 	// [t0, t1] interval to the overlaps buffer if one exists.
 	//
-	// NOTE: overlapCountStorage must be bound as array<atomic<u32>> (read_write storage)
+	// NOTE: overlapsCountStorage must be bound as array<atomic<u32>> (read_write storage)
 	//       and pre-cleared to 0 before dispatch.
-	getOverlapsFn( { pairsStorage, edgesStorage, overlapsStorage, overlapCountStorage, overlapCapacityUniform } ) {
+	getTriangleEdgeOverlapsFn( { edgesStorage, overlapsStorage, overlapsCountStorage } ) {
 
-		const { storage, prefix } = this;
+		const { storage } = this;
 		const { DIST_EPSILON } = overlapConstants;
 
+		const overlapCapacityUniform = uniform( overlapsStorage.value.count );
+
 		return wgslTagFn/* wgsl */`
-			fn ${ prefix }ComputeOverlap( edgeIndex: u32, objectIndex: u32, triIndex: u32 ) -> void {
+			fn computeTriangleEdgeOverlap( edgeIndex: u32, objectIndex: u32, triIndex: u32 ) -> void {
 
 				let lineWorldStart = vec3f(
 					${ edgesStorage }[ edgeIndex ].start[ 0 ],
@@ -258,7 +192,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				if ( t0 >= t1 ) { return; }
 
 				// claim a slot and write the overlap record
-				let slot = atomicAdd( &${ overlapCountStorage }[ 0 ], 1u );
+				let slot = atomicAdd( &${ overlapsCountStorage }[ 0 ], 1u );
 				if ( slot < ${ overlapCapacityUniform } ) {
 
 					${ overlapsStorage }[ slot ].edgeIndex = edgeIndex;
@@ -288,13 +222,72 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	// NOTE: pairCountsStorage / overflowEdgeIndexStorage must be bound as array<atomic<u32>> (read_write storage).
 	//       pairCountsStorage must be pre-cleared to { 0, 0 } and overflowEdgeIndexStorage to
 	//       0xffffffffu before each write pass.
-	getWritePairsFn( { pairsStorage, pairCountsStorage, pairsCapacityUniform, overflowEdgeIndexStorage } ) {
+	getCollectTriEdgePairsFn( { pairsStorage, pairCountsStorage, overflowFlagStorage } ) {
 
-		const { storage, prefix } = this;
-		const { boundsOrderFn, intersectsBoundsFn, transformShapeFn, transformResultFn } = this._buildSharedFns();
+		const { storage } = this;
+
+		const pairsCapacityUniform = uniform( pairsStorage.value.count );
+
+		const boundsOrderFn = wgslTagFn/* wgsl */`
+			fn boundsOrder( shape: ${ edgeLineShapeStruct }, splitAxis: u32, node: ${ bvhNodeStruct } ) -> bool {
+
+				return true;
+
+			}
+		`;
+
+		const intersectsBoundsFn = wgslTagFn/* wgsl */`
+			fn intersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> f32 {
+
+				// Transform bounds to world space. At the top level the shape matrix
+				// is identity, so world-space bounds pass through unchanged.
+				let aabb = ${ transformBVHBounds }( bounds, shape.matrixWorld );
+
+				// Y-cull: bounds entirely below the line
+				if ( aabb.max[ 1 ] <= min( shape.worldStart.y, shape.worldEnd.y ) ) {
+
+					return - 1.0;
+
+				}
+
+				// XZ cull against the line's world-space XZ extents
+				let lineMinX = min( shape.worldStart.x, shape.worldEnd.x );
+				let lineMaxX = max( shape.worldStart.x, shape.worldEnd.x );
+				let lineMinZ = min( shape.worldStart.z, shape.worldEnd.z );
+				let lineMaxZ = max( shape.worldStart.z, shape.worldEnd.z );
+				if (
+					aabb.max[ 0 ] < lineMinX || aabb.min[ 0 ] > lineMaxX ||
+					aabb.max[ 2 ] < lineMinZ || aabb.min[ 2 ] > lineMaxZ
+				) {
+
+					return - 1.0;
+
+				}
+
+				return 0.0;
+
+			}
+		`;
+
+		const transformShapeFn = wgslTagFn/* wgsl */`
+			fn transformShape( shape: ${ edgeLineShapeStruct }, inverseMatrix: mat4x4f, objectIndex: u32 ) -> ${ edgeLineShapeStruct } {
+
+				var localShape = shape;
+				localShape.matrixWorld = ${ storage.transforms }[ objectIndex ].matrixWorld;
+				localShape.objectIndex = objectIndex;
+				return localShape;
+
+			}
+		`;
+
+		const transformResultFn = wgslTagFn/* wgsl */`
+			fn transformResult( result: ptr<function, ${ edgeOverlapResultStruct }>, objectIndex: u32 ) -> void {
+
+			}
+		`;
 
 		const intersectRangeFn = wgslTagFn/* wgsl */`
-			fn ${ prefix }TraverseRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, bestDist: f32 ) -> ${ edgeOverlapResultStruct } {
+			fn traverseRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, bestDist: f32 ) -> ${ edgeOverlapResultStruct } {
 
 				var result: ${ edgeOverlapResultStruct };
 				result.didHit = false;
@@ -308,7 +301,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				for ( var ti = offset; ti < offset + count; ti = ti + 1u ) {
 
-					let i0 = ${ storage.index }[ ti * 3u ];
+					let i0 = ${ storage.index }[ ti * 3u + 0u ];
 					let i1 = ${ storage.index }[ ti * 3u + 1u ];
 					let i2 = ${ storage.index }[ ti * 3u + 2u ];
 
@@ -361,7 +354,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					} else {
 
-						atomicMin( &${ overflowEdgeIndexStorage }[ 0 ], shape.edgeIndex );
+						atomicAdd( &${ overflowFlagStorage }[ 0 ], 1u );
 
 					}
 
@@ -373,7 +366,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		`;
 
 		const traversalFn = this.getShapecastFn( {
-			name: prefix + '_pair_traversal',
+			name: 'collectTriEdgePairs',
 			shapeStruct: edgeLineShapeStruct,
 			resultStruct: edgeOverlapResultStruct,
 			boundsOrderFn,
@@ -384,7 +377,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		} );
 
 		return wgslTagFn/* wgsl */`
-			fn ${ prefix }Traverse( edgeIndex: u32, lineStart: vec3f, lineEnd: vec3f ) -> void {
+			fn traverse( edgeIndex: u32, lineStart: vec3f, lineEnd: vec3f ) -> void {
 
 				var shape: ${ edgeLineShapeStruct };
 				shape.worldStart  = lineStart;
