@@ -2,7 +2,7 @@ import { wgslTagFn } from '../lib/nodes/WGSLTagFnNode.js';
 import { constants } from './common.wgsl.js';
 import { trimResultStruct, overlapResultStruct, clipResultStruct, internalTri, internalEdge } from './structs.wgsl.js';
 
-const { PARALLEL_EPSILON, AREA_EPSILON, DIST_EPSILON, VERTEX_EPSILON } = constants;
+const { PARALLEL_EPSILON, AREA_EPSILON, DIST_THRESHOLD: DIST_EPSILON, VERTEX_EPSILON } = constants;
 
 // Clips triangle (a, b, c) against a plane (plane.xyz = normal, plane.w = constant,
 // equation: dot(normal, p) + constant >= 0 is the kept side).
@@ -122,9 +122,16 @@ export const clipTriangleToPlane = wgslTagFn/* wgsl */`
 // plane of triangle (a, b, c). The plane is always treated as up-facing.
 // Returns TrimResult.valid = false if the entire edge is above the plane.
 export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
-	fn trimToBeneathTriPlane( a: vec3f, b: vec3f, c: vec3f, lineStart: vec3f, lineEnd: vec3f ) -> ${ trimResultStruct } {
+	fn trimToBeneathTriPlane( tri: ${ internalTri }, line: ${ internalEdge } ) -> ${ trimResultStruct } {
 
 		var result: ${ trimResultStruct };
+
+		let a = tri.a;
+		let b = tri.b;
+		let c = tri.c;
+
+		let lineStart = line.start;
+		let lineEnd = line.end;
 
 		// compute the triangle plane, ensuring the normal faces up
 		var normal = normalize( cross( b - a, c - a ) );
@@ -199,7 +206,14 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 // against triangle (a, b, c) projected onto the XZ plane.
 // t0 and t1 are in [0, 1] along the original edge. valid = false if no overlap.
 export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
-	fn getProjectedOverlapRange( lineStart: vec3f, lineEnd: vec3f, a: vec3f, b: vec3f, c: vec3f ) -> ${ overlapResultStruct } {
+	fn getProjectedOverlapRange( line: ${ internalEdge }, tri: ${ internalTri } ) -> ${ overlapResultStruct } {
+
+		let a = tri.a;
+		let b = tri.b;
+		let c = tri.c;
+
+		let lineStart = line.start;
+		let lineEnd = line.end;
 
 		var result: ${ overlapResultStruct };
 

@@ -110,7 +110,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	getTriangleEdgeOverlapsFn( { edgesStorage, overlapsStorage, overlapsCountStorage } ) {
 
 		const { storage } = this;
-		const { DIST_EPSILON, DOUBLE_SIDE, BACK_SIDE } = overlapConstants;
+		const { DIST_THRESHOLD, DOUBLE_SIDE, BACK_SIDE } = overlapConstants;
 
 		return wgslTagFn/* wgsl */`
 			fn computeTriangleEdgeOverlap( edgeIndex: u32, objectIndex: u32, triIndex: u32 ) -> void {
@@ -175,32 +175,35 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				// trim edge to the portion below the triangle plane; if the
 				// entire line is already below the triangle, use the full line
-				let lowestTriY = min( min( tri.a.y, tri.b.y ), tri.c.y );
-				var trimStart = line.start;
-				var trimEnd   = line.end;
-				if ( lineMaxY >= lowestTriY ) {
+				var beneathLine: ${ internalEdge };
+				if ( lineMaxY < triMinY ) {
 
-					let trimResult = ${ trimToBeneathTriPlane }( tri.a, tri.b, tri.c, line.start, line.end );
+					beneathLine = line;
+
+				} else {
+
+					let trimResult = ${ trimToBeneathTriPlane }( tri, line );
 					if ( ! trimResult.valid ) {
 
 						return;
 
 					}
 
-					trimStart = trimResult.start;
-					trimEnd   = trimResult.end;
+					beneathLine.start = trimResult.start;
+					beneathLine.end = trimResult.end;
 
 				}
 
 				// skip degenerate trimmed segments
-				if ( length( trimEnd - trimStart ) < ${ DIST_EPSILON } ) {
+				// TODO: add a "distant" utility function
+				if ( length( beneathLine.end - beneathLine.start ) < ${ DIST_THRESHOLD } ) {
 
 					return;
 
 				}
 
 				// get projected overlap range in trimmed-edge space
-				var overlapRange = ${ getProjectedOverlapRange }( trimStart, trimEnd, tri.a, tri.b, tri.c );
+				var overlapRange = ${ getProjectedOverlapRange }( beneathLine, tri );
 				if ( ! overlapRange.valid ) {
 
 					return;
@@ -208,10 +211,10 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				}
 
 				// remap t values from trimmed-edge space to original-edge space
-				let lineDir    = normalize( line.end - line.start );
-				let lineLen    = length( line.end - line.start );
-				let tTrimStart = dot( trimStart - line.start, lineDir ) / lineLen;
-				let tTrimEnd   = dot( trimEnd   - line.start, lineDir ) / lineLen;
+				let lineDir = normalize( line.end - line.start );
+				let lineLen = length( line.end - line.start );
+				let tTrimStart = dot( beneathLine.start - line.start, lineDir ) / lineLen;
+				let tTrimEnd = dot( beneathLine.end - line.start, lineDir ) / lineLen;
 				let t0 = clamp( tTrimStart + overlapRange.t0 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
 				let t1 = clamp( tTrimStart + overlapRange.t1 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
 				if ( t0 >= t1 ) {
