@@ -42,7 +42,7 @@ export const clipTriangleToPlane = wgslTagFn/* wgsl */`
 
 		// vertex positions and plane distances packed into arrays for index-based access
 		let pts   = array<vec3f, 3>( a, b, c );
-		let dists = array<f32,   3>( da, db, dc );
+		let dists = array<f32, 3>( da, db, dc );
 
 		if ( keptCount == 1u ) {
 
@@ -91,12 +91,12 @@ export const clipTriangleToPlane = wgslTagFn/* wgsl */`
 		}
 
 		// kept0 and kept1 are the two vertices on the kept side; discarded is the one being cut off
-		let kept0     = pts[ ( discardedIdx + 1u ) % 3u ];
-		let kept1     = pts[ ( discardedIdx + 2u ) % 3u ];
+		let kept0 = pts[ ( discardedIdx + 1u ) % 3u ];
+		let kept1 = pts[ ( discardedIdx + 2u ) % 3u ];
 		let discarded = pts[ discardedIdx ];
 
-		let kept0Dist     = dists[ ( discardedIdx + 1u ) % 3u ];
-		let kept1Dist     = dists[ ( discardedIdx + 2u ) % 3u ];
+		let kept0Dist = dists[ ( discardedIdx + 1u ) % 3u ];
+		let kept1Dist = dists[ ( discardedIdx + 2u ) % 3u ];
 		let discardedDist = dists[ discardedIdx ];
 
 		// parametric intersections along kept0->discarded and kept1->discarded
@@ -128,15 +128,16 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 		// TODO: this function may be causing issues
 
 		// compute the triangle plane, ensuring the normal faces up
-		var plane: ${ PlaneWGSL.struct };
-		plane.normal = normalize( cross( tri.c - tri.b, tri.a - tri.b ) );
+		let triNormal = ${ TriWGSL.getNormal }( tri );
+		var plane = ${ PlaneWGSL.fromNormalAndCoplanarPoint }( triNormal, tri.a );
+
 		if ( plane.normal.y < 0.0 ) {
 
 			plane.normal *= - 1.0;
+			plane.constant *= - 1.0;
 
 		}
 
-		plane.constant = - dot( plane.normal, tri.a );
 		let startDist = dot( plane.normal, line.start ) + plane.constant;
 		let endDist = dot( plane.normal, line.end ) + plane.constant;
 
@@ -222,7 +223,7 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		// skip degenerate projected triangles
 		// TODO: Add degenerate triangle test function.
-		if ( length( cross( _tri.c - _tri.b, _tri.a - _tri.b ) * 0.5 ) <= ${ AREA_EPSILON } ) {
+		if ( ${ TriWGSL.getArea }( _tri ) <= ${ AREA_EPSILON } ) {
 
 			return false;
 
@@ -234,10 +235,9 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		// TODO: this is slightly different (not using normal which could be +-)
 		// cutting plane: orthogonal to the edge direction in XZ, passing through ls
-		var normal = normalize( cross( _tri.c - _tri.b, _tri.a - _tri.b ) );
-		var plane: ${ PlaneWGSL.struct };
-		plane.normal = normalize( cross( dir, normal ) );
-		plane.constant = - dot( plane.normal, _line.start );
+		let normal = ${ TriWGSL.getNormal }( _tri );
+		let orthoNormal = normalize( cross( dir, normal ) );
+		var orthoPlane = ${ PlaneWGSL.fromNormalAndCoplanarPoint }( orthoNormal, _line.start );
 
 		// find the two intersections of triangle edges with the cutting plane
 		var intersectCount = 0u;
@@ -251,8 +251,8 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 			let p2 = triPts[ ( i + 1u ) % 3u ];
 
 			// TODO: this is inconsistent
-			let distToStart = dot( plane.normal, p1 ) + plane.constant;
-			let distToEnd = dot( plane.normal, p2 ) + plane.constant;
+			let distToStart = dot( orthoPlane.normal, p1 ) + orthoPlane.constant;
+			let distToEnd = dot( orthoPlane.normal, p2 ) + orthoPlane.constant;
 
 			let startIntersects = abs( distToStart ) < ${ DIST_THRESHOLD };
 			let endIntersects = abs( distToEnd ) < ${ DIST_THRESHOLD };

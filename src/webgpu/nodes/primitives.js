@@ -1,4 +1,5 @@
 import { StructTypeNode } from 'three/webgpu';
+import { wgslTagFn } from '../lib/nodes/WGSLTagFnNode.js';
 
 const lineStruct = new StructTypeNode( {
 	start: 'vec3',
@@ -22,8 +23,32 @@ export const LineWGSL = {
 
 export const TriWGSL = {
 	struct: triStruct,
+	getNormal: wgslTagFn/* wgsl */`
+		fn tri_getNormal( tri: ${ triStruct } ) -> vec3f {
+
+			return normalize( cross( tri.c - tri.b, tri.a - tri.b ) );
+
+		}
+	`,
+	getArea: wgslTagFn/* wgsl */`
+		fn tri_getArea( tri: ${ triStruct } ) -> f32 {
+
+			return length( cross( tri.c - tri.b, tri.a - tri.b ) * 0.5 );
+
+		}
+	`
 };
 
 export const PlaneWGSL = {
 	struct: planeStruct,
+	fromNormalAndCoplanarPoint: wgslTagFn/* wgsl */`
+		fn plane_fromNormalAndCoplanarPoint( norm: vec3f, point: vec3f ) -> ${ planeStruct } {
+
+			var plane: ${ planeStruct };
+			plane.normal = norm;
+			plane.constant = - dot( norm, point );
+			return plane;
+
+		}
+	`,
 };
