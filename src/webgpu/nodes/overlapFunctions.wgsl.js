@@ -2,7 +2,7 @@ import { wgslTagFn } from '../lib/nodes/WGSLTagFnNode.js';
 import { constants } from './common.wgsl.js';
 import { overlapResultStruct, clipResultStruct, internalTri, internalEdge } from './structs.wgsl.js';
 
-const { PARALLEL_EPSILON, AREA_EPSILON, DIST_THRESHOLD: DIST_EPSILON, VERTEX_EPSILON } = constants;
+const { PARALLEL_EPSILON, AREA_EPSILON, DIST_THRESHOLD, VERTEX_EPSILON } = constants;
 
 // Clips triangle (a, b, c) against a plane (plane.xyz = normal, plane.w = constant,
 // equation: dot(normal, p) + constant >= 0 is the kept side).
@@ -124,80 +124,80 @@ export const clipTriangleToPlane = wgslTagFn/* wgsl */`
 export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 	fn trimToBeneathTriPlane( tri: ${ internalTri }, line: ${ internalEdge }, output: ptr<function, ${ internalEdge }> ) -> bool {
 
-		// TODO: this function seems to be causing issues
-		let a = tri.a;
-		let b = tri.b;
-		let c = tri.c;
-
-		let lineStart = line.start;
-		let lineEnd = line.end;
+		// TODO: this function may be causing issues
 
 		// compute the triangle plane, ensuring the normal faces up
-		var normal = normalize( cross( b - a, c - a ) );
+		var normal = normalize( cross( tri.b - tri.a, tri.c - tri.a ) );
 		if ( normal.y < 0.0 ) {
 
 			normal = - normal;
 
 		}
 
-		let d = - dot( normal, a );
-		let startDist = dot( normal, lineStart ) + d;
-		let endDist = dot( normal, lineEnd ) + d;
+		let planeConstant = - dot( normal, tri.a );
+		let startDist = dot( normal, line.start ) + planeConstant;
+		let endDist = dot( normal, line.end ) + planeConstant;
+
+		let isStartOnPlane = abs( startDist ) < ${ PARALLEL_EPSILON };
+		let isEndOnPlane = abs( endDist ) < ${ PARALLEL_EPSILON };
+
+		let isStartBelow = startDist < 0.0;
+		let isEndBelow = endDist < 0.0;
 
 		// coplanar/parallel - only valid if the line is below the plane
-		let lineDir = normalize( lineEnd - lineStart );
+		let lineDir = normalize( line.end - line.start );
 		if ( abs( dot( normal, lineDir ) ) < ${ PARALLEL_EPSILON } ) {
 
-			if ( startDist < 0.0 ) {
+			// if the line is definitely above or on the plane then skip it
+			if ( isStartOnPlane || ! isStartBelow ) {
 
-				output.start = lineStart;
-				output.end = lineEnd;
-				return true;
+				return false;
 
 			} else {
 
-				return false;
+				output.start = line.start;
+				output.end = line.end;
+				return true;
 
 			}
 
 		}
 
-		let isStartBelow = startDist < 0.0;
-		let isEndBelow = endDist   < 0.0;
-
-		// both below - keep the full edge
 		if ( isStartBelow && isEndBelow ) {
 
-			output.start = lineStart;
-			output.end = lineEnd;
+			// both below - keep the full edge
+			output.start = line.start;
+			output.end = line.end;
 			return true;
 
-		}
+		} else if ( ! isStartBelow && ! isEndBelow ) {
 
-		// both above - discard
-		if ( ! isStartBelow && ! isEndBelow ) {
-
+			// both above - discard
 			return false;
-
-		}
-
-		// straddling - clip at the plane intersection
-		let t = - startDist / ( endDist - startDist );
-		let hitPoint = mix( lineStart, lineEnd, t );
-
-		if ( isStartBelow ) {
-
-			output.start = lineStart;
-			output.end = hitPoint;
 
 		} else {
 
-			output.start = hitPoint;
-			output.end = lineEnd;
+			// straddling - clip at the plane intersection
+			let t = - startDist / ( endDist - startDist );
+			let planeHit = mix( line.start, line.end, t );
+
+			if ( isStartBelow ) {
+
+				output.start = line.start;
+				output.end = planeHit;
+				return true;
+
+			} else if ( isEndBelow ) {
+
+				output.end = line.end;
+				output.start = planeHit;
+				return true;
+
+			}
 
 		}
 
-		return true;
+		return false;
 
 	}
 `;
@@ -208,21 +208,16 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 	fn getProjectedOverlapRange( line: ${ internalEdge }, tri: ${ internalTri } ) -> ${ overlapResultStruct } {
 
-		let a = tri.a;
-		let b = tri.b;
-		let c = tri.c;
-
-		let lineStart = line.start;
-		let lineEnd = line.end;
+		// TODO: remove result struct in favor of a pointer
 
 		var result: ${ overlapResultStruct };
 
 		// project everything to XZ
-		let ls = vec3f( lineStart.x, 0.0, lineStart.z );
-		let le = vec3f( lineEnd.x, 0.0, lineEnd.z );
-		let fa = vec3f( a.x, 0.0, a.z );
-		let fb = vec3f( b.x, 0.0, b.z );
-		let fc = vec3f( c.x, 0.0, c.z );
+		let ls = vec3f( line.start.x, 0.0, line.start.z );
+		let le = vec3f( line.end.x, 0.0, line.end.z );
+		let fa = vec3f( tri.a.x, 0.0, tri.a.z );
+		let fb = vec3f( tri.b.x, 0.0, tri.b.z );
+		let fc = vec3f( tri.c.x, 0.0, tri.c.z );
 
 		// skip degenerate projected triangles
 		// TODO: Add degenerate triangle test function.
@@ -254,8 +249,8 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 			let d1 = dot( ortho, p1 ) - planeDist;
 			let d2 = dot( ortho, p2 ) - planeDist;
 
-			let startOnPlane = abs( d1 ) < ${ DIST_EPSILON };
-			let endOnPlane = abs( d2 ) < ${ DIST_EPSILON };
+			let startOnPlane = abs( d1 ) < ${ DIST_THRESHOLD };
+			let endOnPlane = abs( d2 ) < ${ DIST_THRESHOLD };
 
 			var point = vec3f( 0.0 );
 			var edgeCrossing = false;
@@ -303,7 +298,7 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		// orient the triangle segment to match the edge direction
 		let triSegLen = length( triLineEnd - triLineStart );
-		if ( triSegLen < ${ DIST_EPSILON } ) {
+		if ( triSegLen < ${ DIST_THRESHOLD } ) {
 
 			return result;
 
