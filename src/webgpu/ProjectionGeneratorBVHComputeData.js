@@ -180,17 +180,9 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					beneathLine = line;
 
-				} else {
+				} else if ( ! ${ trimToBeneathTriPlane }( tri, line, &beneathLine ) ) {
 
-					let trimResult = ${ trimToBeneathTriPlane }( tri, line );
-					if ( ! trimResult.valid ) {
-
-						return;
-
-					}
-
-					beneathLine.start = trimResult.start;
-					beneathLine.end = trimResult.end;
+					return;
 
 				}
 

@@ -1,6 +1,6 @@
 import { wgslTagFn } from '../lib/nodes/WGSLTagFnNode.js';
 import { constants } from './common.wgsl.js';
-import { trimResultStruct, overlapResultStruct, clipResultStruct, internalTri, internalEdge } from './structs.wgsl.js';
+import { overlapResultStruct, clipResultStruct, internalTri, internalEdge } from './structs.wgsl.js';
 
 const { PARALLEL_EPSILON, AREA_EPSILON, DIST_THRESHOLD: DIST_EPSILON, VERTEX_EPSILON } = constants;
 
@@ -122,10 +122,9 @@ export const clipTriangleToPlane = wgslTagFn/* wgsl */`
 // plane of triangle (a, b, c). The plane is always treated as up-facing.
 // Returns TrimResult.valid = false if the entire edge is above the plane.
 export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
-	fn trimToBeneathTriPlane( tri: ${ internalTri }, line: ${ internalEdge } ) -> ${ trimResultStruct } {
+	fn trimToBeneathTriPlane( tri: ${ internalTri }, line: ${ internalEdge }, output: ptr<function, ${ internalEdge }> ) -> bool {
 
-		var result: ${ trimResultStruct };
-
+		// TODO: this function seems to be causing issues
 		let a = tri.a;
 		let b = tri.b;
 		let c = tri.c;
@@ -137,7 +136,7 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 		var normal = normalize( cross( b - a, c - a ) );
 		if ( normal.y < 0.0 ) {
 
-			normal = -normal;
+			normal = - normal;
 
 		}
 
@@ -151,12 +150,15 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 
 			if ( startDist < 0.0 ) {
 
-				result.start = lineStart;
-				result.end   = lineEnd;
-				result.valid = true;
+				output.start = lineStart;
+				output.end = lineEnd;
+				return true;
+
+			} else {
+
+				return false;
 
 			}
-			return result;
 
 		}
 
@@ -166,38 +168,36 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 		// both below - keep the full edge
 		if ( isStartBelow && isEndBelow ) {
 
-			result.start = lineStart;
-			result.end = lineEnd;
-			result.valid = true;
-			return result;
+			output.start = lineStart;
+			output.end = lineEnd;
+			return true;
 
 		}
 
 		// both above - discard
 		if ( ! isStartBelow && ! isEndBelow ) {
 
-			return result;
+			return false;
 
 		}
 
 		// straddling - clip at the plane intersection
-		let t = -startDist / ( endDist - startDist );
+		let t = - startDist / ( endDist - startDist );
 		let hitPoint = mix( lineStart, lineEnd, t );
 
 		if ( isStartBelow ) {
 
-			result.start = lineStart;
-			result.end = hitPoint;
+			output.start = lineStart;
+			output.end = hitPoint;
 
 		} else {
 
-			result.start = hitPoint;
-			result.end = lineEnd;
+			output.start = hitPoint;
+			output.end = lineEnd;
 
 		}
 
-		result.valid = true;
-		return result;
+		return true;
 
 	}
 `;
