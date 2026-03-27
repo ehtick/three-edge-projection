@@ -17,12 +17,12 @@ export class EdgePairsKernel extends ComputeKernel {
 		};
 
 		const edges = params.edges;
-		const traversalFn = proxyFn( params, 'bvhData.fns.collectTriEdgePairs' );
+		const traversalFn = proxyFn( 'bvhData.value.fns.collectTriEdgePairs', params );
 		const shader = wgslTagFn/* wgsl */`
 			fn compute( globalId: vec3u ) -> void {
 
 				let edgeIndex = globalId.x;
-				let edgeListLength = arrayLength( ${ edges } );
+				let edgeListLength = arrayLength( &${ edges } );
 				if ( edgeIndex >= edgeListLength ) {
 
 					return;
