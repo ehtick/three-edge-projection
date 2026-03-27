@@ -195,33 +195,35 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				}
 
 				// get projected overlap range in trimmed-edge space
-				var overlapRange = ${ getProjectedOverlapRange }( beneathLine, tri );
-				if ( ! overlapRange.valid ) {
+				var overlapLine: ${ internalEdge };
+				if ( ${ getProjectedOverlapRange }( beneathLine, tri, &overlapLine ) ) {
 
-					return;
+					let dir = line.end - line.start;
+					let v0 = overlapLine.start - line.start;
+					let v1 = overlapLine.end - line.start;
 
-				}
+					let l = length( dir );
+					var d0 = length( v0 ) / l;
+					var d1 = length( v1 ) / l;
 
-				// remap t values from trimmed-edge space to original-edge space
-				let lineDir = normalize( line.end - line.start );
-				let lineLen = length( line.end - line.start );
-				let tTrimStart = dot( beneathLine.start - line.start, lineDir ) / lineLen;
-				let tTrimEnd = dot( beneathLine.end - line.start, lineDir ) / lineLen;
-				let t0 = clamp( tTrimStart + overlapRange.t0 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
-				let t1 = clamp( tTrimStart + overlapRange.t1 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
-				if ( t0 >= t1 ) {
+					d0 = min( max( d0, 0.0 ), 1.0 );
+					d1 = min( max( d1, 0.0 ), 1.0 );
 
-					return;
+					if ( abs( d0 - d1 ) <= ${ DIST_THRESHOLD } ) {
 
-				}
+						return;
 
-				// claim a slot and write the overlap record
-				let slot = atomicAdd( &${ overlapsCountStorage }[ 0 ], 1u );
-				if ( slot < arrayLength( &${ overlapsStorage } ) ) {
+					}
 
-					${ overlapsStorage }[ slot ].edgeIndex = edgeIndex;
-					${ overlapsStorage }[ slot ].t0        = t0;
-					${ overlapsStorage }[ slot ].t1        = t1;
+					// claim a slot and write the overlap record
+					let slot = atomicAdd( &${ overlapsCountStorage }[ 0 ], 1u );
+					if ( slot < arrayLength( &${ overlapsStorage } ) ) {
+
+						${ overlapsStorage }[ slot ].edgeIndex = edgeIndex;
+						${ overlapsStorage }[ slot ].t0 = d0;
+						${ overlapsStorage }[ slot ].t1 = d1;
+
+					}
 
 				}
 

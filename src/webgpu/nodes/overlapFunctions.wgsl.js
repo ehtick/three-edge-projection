@@ -206,11 +206,7 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 // against triangle (a, b, c) projected onto the XZ plane.
 // t0 and t1 are in [0, 1] along the original edge. valid = false if no overlap.
 export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
-	fn getProjectedOverlapRange( line: ${ internalEdge }, tri: ${ internalTri } ) -> ${ overlapResultStruct } {
-
-		// TODO: remove result struct in favor of a pointer
-
-		var result: ${ overlapResultStruct };
+	fn getProjectedOverlapRange( line: ${ internalEdge }, tri: ${ internalTri }, output: ptr<function, ${ internalEdge }> ) -> bool {
 
 		// project everything to XZ
 		var _tri = tri;
@@ -226,7 +222,7 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 		// TODO: Add degenerate triangle test function.
 		if ( length( cross( _tri.c - _tri.b, _tri.a - _tri.b ) * 0.5 ) <= ${ AREA_EPSILON } ) {
 
-			return result;
+			return false;
 
 		}
 
@@ -318,17 +314,18 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 			if ( separated1 || separated2 ) {
 
-				return result;
+				return false;
 
 			}
 
-			result.t0 = max( s1, s2 ) / lineDistance;
-			result.t1 = min( e1, e2 ) / lineDistance;
-			result.valid = true;
+			output.start = mix( line.start, line.end, max( s1, s2 ) / lineDistance );
+			output.end = mix( line.start, line.end, min( e1, e2 ) / lineDistance );
+
+			return true;
 
 		}
 
-		return result;
+		return false;
 
 	}
 `;
