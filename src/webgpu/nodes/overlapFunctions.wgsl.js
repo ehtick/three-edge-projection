@@ -127,7 +127,7 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 		// TODO: this function may be causing issues
 
 		// compute the triangle plane, ensuring the normal faces up
-		var normal = normalize( cross( tri.b - tri.a, tri.c - tri.a ) );
+		var normal = normalize( cross( tri.c - tri.b, tri.a - tri.b ) );
 		if ( normal.y < 0.0 ) {
 
 			normal = - normal;
@@ -236,8 +236,9 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		// TODO: this is slightly different (not using normal which could be +-)
 		// cutting plane: orthogonal to the edge direction in XZ, passing through ls
-		let planeNormal = normalize( cross( dir, vec3f( 0.0, 1.0, 0.0 ) ) );
-		let planeConstant = dot( planeNormal, _line.start );
+		var normal = normalize( cross( _tri.c - _tri.b, _tri.a - _tri.b ) );
+		let planeNormal = normalize( cross( dir, normal ) );
+		let planeConstant = - dot( planeNormal, _line.start );
 
 		// find the two intersections of triangle edges with the cutting plane
 		var intersectCount = 0u;
@@ -251,25 +252,25 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 			let p2 = triPts[ ( i + 1u ) % 3u ];
 
 			// TODO: this is inconsistent
-			let d1 = dot( planeNormal, p1 ) - planeConstant;
-			let d2 = dot( planeNormal, p2 ) - planeConstant;
+			let distToStart = dot( planeNormal, p1 ) + planeConstant;
+			let distToEnd = dot( planeNormal, p2 ) + planeConstant;
 
-			let startOnPlane = abs( d1 ) < ${ DIST_THRESHOLD };
-			let endOnPlane = abs( d2 ) < ${ DIST_THRESHOLD };
+			let startIntersects = abs( distToStart ) < ${ DIST_THRESHOLD };
+			let endIntersects = abs( distToEnd ) < ${ DIST_THRESHOLD };
 
 			var point = vec3f( 0.0 );
-			var edgeCrossing = false;
-			if ( ! startOnPlane && ! endOnPlane && d1 * d2 < 0.0 ) {
+			var edgeIntersects = false;
+			if ( ! startIntersects && ! endIntersects && distToStart * distToEnd < 0.0 ) {
 
-				let t = d1 / ( d1 - d2 );
+				let t = distToStart / ( distToStart - distToEnd );
 				point = mix( p1, p2, t );
-				edgeCrossing = true;
+				edgeIntersects = true;
 
 			}
 
-			if ( ( edgeCrossing && ! endOnPlane ) || startOnPlane ) {
+			if ( ( edgeIntersects && ! endIntersects ) || startIntersects ) {
 
-				if ( startOnPlane && ! edgeCrossing ) {
+				if ( startIntersects && ! edgeIntersects ) {
 
 					point = p1;
 
@@ -296,44 +297,37 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		}
 
-		if ( intersectCount < 2u ) {
+		if ( intersectCount == 2u ) {
 
-			return result;
+			let triDir = normalize( triLineEnd - triLineStart );
+			if ( dot( dir, triDir ) < 0.0 ) {
 
-		}
+				let tmp = triLineStart;
+				triLineStart = triLineEnd;
+				triLineEnd = tmp;
 
-		// orient the triangle segment to match the edge direction
-		let triSegLen = length( triLineEnd - triLineStart );
-		if ( triSegLen < ${ DIST_THRESHOLD } ) {
+			}
 
-			return result;
+			// project both segments onto dir and compute the overlap
+			let s1 = 0.0;
+			let e1 = dot( _line.end - _line.start, dir );
+			let s2 = dot( triLineStart - _line.start, dir );
+			let e2 = dot( triLineEnd - _line.start, dir );
+			let separated1 = e1 <= s2;
+			let separated2 = e2 <= s1;
 
-		}
+			if ( separated1 || separated2 ) {
 
-		var tsStart = triLineStart;
-		var tsEnd = triLineEnd;
-		if ( dot( dir, ( triLineEnd - triLineStart ) / triSegLen ) < 0.0 ) {
+				return result;
 
-			tsStart = triLineEnd;
-			tsEnd = triLineStart;
+			}
 
-		}
-
-		// project both segments onto dir and compute the overlap
-		let s1 = 0.0;
-		let e1 = dot( _line.end - _line.start, dir );
-		let s2 = dot( tsStart - _line.start, dir );
-		let e2 = dot( tsEnd - _line.start, dir );
-
-		if ( e1 <= s2 || e2 <= s1 ) {
-
-			return result;
+			result.t0 = max( s1, s2 ) / lineDistance;
+			result.t1 = min( e1, e2 ) / lineDistance;
+			result.valid = true;
 
 		}
 
-		result.t0 = max( s1, s2 ) / lineDistance;
-		result.t1 = min( e1, e2 ) / lineDistance;
-		result.valid = true;
 		return result;
 
 	}

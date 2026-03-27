@@ -64,7 +64,7 @@ export function getProjectedLineOverlap( line, triangle, lineTarget = new Line3(
 
 		}
 
-		if ( edgeIntersects && ! endIntersects || startIntersects ) {
+		if ( ( edgeIntersects && ! endIntersects ) || startIntersects ) {
 
 			if ( startIntersects && ! edgeIntersects ) {
 
