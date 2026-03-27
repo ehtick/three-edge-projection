@@ -148,7 +148,9 @@ async function updateEdges() {
 	outputContainer.innerText = 'Generating...';
 
 	projection.geometry.dispose();
+	projection.material.dispose();
 	drawThroughProjection.geometry.dispose();
+	drawThroughProjection.material.dispose();
 	projection.geometry = new BufferGeometry();
 	drawThroughProjection.geometry = new BufferGeometry();
 

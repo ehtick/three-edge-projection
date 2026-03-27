@@ -15,6 +15,14 @@ import { ProjectionResult } from '../ProjectionGenerator.js';
 // threads. each sub-edge would carry tStart/tEnd (its [0,1] range within the original edge) so the
 // GPU overlap t0/t1 values can be remapped back to original-edge space on the CPU before merging.
 
+// TODO: Consider storing the ranges with multiple edges clipped per thread to reduce the array size needed
+
+// TODO: initialize the compute kernels + buffers once to avoid construction overhead
+
+// TODO: expose method for gathering edges per mesh
+
+// TODO: handle edges iteratively
+
 export class ComputeProjectionGenerator {
 
 	constructor( renderer ) {
@@ -64,13 +72,13 @@ export class ComputeProjectionGenerator {
 		const edgeStorage = storage( edgeBufferAttribute, edgeStruct ).toReadOnly().setName( 'edges' );
 
 		// store the triangle / edge pairs to
-		const triEdgePairsAttribute = new IndirectStorageBufferAttribute( batchCapacity * 64, triEdgePairStruct.getLength() );
+		const triEdgePairsAttribute = new IndirectStorageBufferAttribute( batchCapacity * 70, triEdgePairStruct.getLength() );
 		const triEdgeStorage = storage( triEdgePairsAttribute, triEdgePairStruct ).setName( 'TriEdge' );
 
 		const triEdgePairsSizeAttribute = new IndirectStorageBufferAttribute( 3, 1 );
 		const triEdgeSizeStorage = storage( triEdgePairsSizeAttribute, 'uint' );
 
-		const overlapsAttribute = new IndirectStorageBufferAttribute( batchCapacity * 64, overlapRecordStruct.getLength() );
+		const overlapsAttribute = new IndirectStorageBufferAttribute( batchCapacity * 70, overlapRecordStruct.getLength() );
 		const overlapStorage = storage( overlapsAttribute, overlapRecordStruct ).setName( 'overlaps' );
 
 		const overlapsSizeAttribute = new IndirectStorageBufferAttribute( 3, 1 );
@@ -78,6 +86,8 @@ export class ComputeProjectionGenerator {
 
 		const overflowFlagAttribute = new IndirectStorageBufferAttribute( 1, 1 );
 		const overflowFlagStorage = storage( overflowFlagAttribute, 'uint' );
+
+		console.log( edgeBufferDataU32.length * 4 * 1e-6 );
 
 
 		// fill out the edges array
@@ -123,10 +133,18 @@ export class ComputeProjectionGenerator {
 		//
 
 		// accumulate potential triangle-edge overlap pairs
-		renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchCapacity ) );
+		await renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchCapacity ) );
 
-		// generate all overlaps
-		renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( batchCapacity * 64 ) );
+		// read back actual pair count before dispatching K3
+		const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
+		const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
+
+		// generate all overlaps — dispatch only over valid pairs
+		if ( pairCount > 0 ) {
+
+			renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( pairCount ) );
+
+		}
 
 		//
 
@@ -141,6 +159,7 @@ export class ComputeProjectionGenerator {
 		const overlapsSizeU32 = new Uint32Array( overlapsSize );
 		const stride = overlapRecordStruct.getLength();
 		const intervalsByEdge = new Map();
+
 		for ( let i = 0; i < overlapsSizeU32[ 0 ]; i ++ ) {
 
 			const index = i * stride;
@@ -157,7 +176,6 @@ export class ComputeProjectionGenerator {
 			intervalsByEdge.get( ei ).push( [ t0, t1 ] );
 
 		}
-
 
 		// sort, merge, and convert each edge's hidden intervals to visible/hidden line segments.
 		// edges absent from intervalsByEdge had no occluding triangles and are fully visible.
@@ -186,6 +204,9 @@ export class ComputeProjectionGenerator {
 			overlapsToLines( edges[ edgeIndex ], merged, true, collector.hiddenEdges );
 
 		}
+
+		const overflow = new Uint32Array( await renderer.getArrayBufferAsync( overflowFlagAttribute ) );
+		console.log( overflow[ 0 ] )
 
 		return collector;
 

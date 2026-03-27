@@ -142,7 +142,11 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					let isFrontUp = ( triNormal.y > 0.0 ) != inverted;
 					let keepFront = side > 0;
-					if ( isFrontUp != keepFront ) { return; }
+					if ( isFrontUp != keepFront ) {
+
+						return;
+
+					}
 
 				}
 
@@ -150,10 +154,18 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				let lineMaxY = max( lineWorldStart.y, lineWorldEnd.y );
 
 				// skip triangles entirely below the edge
-				if ( max( max( a.y, b.y ), c.y ) <= lineMinY ) { return; }
+				if ( max( max( a.y, b.y ), c.y ) <= lineMinY ) {
+
+					return;
+
+				}
 
 				// skip if the edge lies on this triangle
-				if ( ${ isLineTriangleEdge }( lineWorldStart, lineWorldEnd, a, b, c ) ) { return; }
+				if ( ${ isLineTriangleEdge }( lineWorldStart, lineWorldEnd, a, b, c ) ) {
+
+					return;
+
+				}
 
 				// trim edge to the portion below the triangle plane; if the
 				// entire line is already below the triangle, use the full line
@@ -163,18 +175,31 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				if ( lineMaxY >= lowestTriY ) {
 
 					let trimResult = ${ trimToBeneathTriPlane }( a, b, c, lineWorldStart, lineWorldEnd );
-					if ( ! trimResult.valid ) { return; }
+					if ( ! trimResult.valid ) {
+
+						return;
+
+					}
+
 					trimStart = trimResult.start;
 					trimEnd   = trimResult.end;
 
 				}
 
 				// skip degenerate trimmed segments
-				if ( length( trimEnd - trimStart ) < ${ DIST_EPSILON } ) { return; }
+				if ( length( trimEnd - trimStart ) < ${ DIST_EPSILON } ) {
+
+					return;
+
+				}
 
 				// get projected overlap range in trimmed-edge space
-				let overlapRange = ${ getProjectedOverlapRange }( trimStart, trimEnd, a, b, c );
-				if ( ! overlapRange.valid ) { return; }
+				var overlapRange = ${ getProjectedOverlapRange }( trimStart, trimEnd, a, b, c );
+				if ( ! overlapRange.valid ) {
+
+					return;
+
+				}
 
 				// remap t values from trimmed-edge space to original-edge space
 				let lineDir    = normalize( lineWorldEnd - lineWorldStart );
@@ -183,7 +208,11 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				let tTrimEnd   = dot( trimEnd   - lineWorldStart, lineDir ) / lineLen;
 				let t0 = clamp( tTrimStart + overlapRange.t0 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
 				let t1 = clamp( tTrimStart + overlapRange.t1 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
-				if ( t0 >= t1 ) { return; }
+				if ( t0 >= t1 ) {
+
+					return;
+
+				}
 
 				// claim a slot and write the overlap record
 				let slot = atomicAdd( &${ overlapsCountStorage }[ 0 ], 1u );
@@ -239,6 +268,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				}
 
+
+				// TODO: confirm this is correct
 				// XZ cull against the line's world-space XZ extents
 				let lineMinX = min( shape.worldStart.x, shape.worldEnd.x );
 				let lineMaxX = max( shape.worldStart.x, shape.worldEnd.x );

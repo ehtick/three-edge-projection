@@ -46,7 +46,7 @@ function toLineGeometry( edges ) {
 	}
 
 	const edgeGeom = new BufferGeometry();
-	const edgeBuffer = new BufferAttribute( edgeArray, 3, true );
+	const edgeBuffer = new BufferAttribute( edgeArray, 3, false );
 	edgeGeom.setAttribute( 'position', edgeBuffer );
 	return edgeGeom;
 
