@@ -11,7 +11,7 @@ import {
 	getProjectedOverlapRange,
 	isLineTriangleEdge,
 } from './nodes/overlapFunctions.wgsl.js';
-import { internalEdge, internalTri } from './nodes/structs.wgsl.js';
+import { LineWGSL, TriWGSL } from './nodes/primitives.js';
 
 // Shape struct carrying world-space line endpoints plus the object-to-world
 // matrix (set by transformShapeFn; identity at top level so world-space
@@ -115,8 +115,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		return wgslTagFn/* wgsl */`
 			fn computeTriangleEdgeOverlap( edgeIndex: u32, objectIndex: u32, triIndex: u32 ) -> void {
 
-				var tri: ${ internalTri };
-				var line: ${ internalEdge };
+				var tri: ${ TriWGSL.struct };
+				var line: ${ LineWGSL.struct };
 
 				line.start = vec3f(
 					${ edgesStorage }[ edgeIndex ].start[ 0 ],
@@ -175,7 +175,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				// trim edge to the portion below the triangle plane; if the
 				// entire line is already below the triangle, use the full line
-				var beneathLine: ${ internalEdge };
+				var beneathLine: ${ LineWGSL.struct };
 				if ( lineMaxY < triMinY ) {
 
 					beneathLine = line;
@@ -195,7 +195,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				}
 
 				// get projected overlap range in trimmed-edge space
-				var overlapLine: ${ internalEdge };
+				var overlapLine: ${ LineWGSL.struct };
 				if ( ${ getProjectedOverlapRange }( beneathLine, tri, &overlapLine ) ) {
 
 					let dir = line.end - line.start;
@@ -317,8 +317,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				result.didHit = false;
 				result.dist = bestDist;
 
-				var tri: ${ internalTri };
-				var line: ${ internalEdge };
+				var tri: ${ TriWGSL.struct };
+				var line: ${ LineWGSL.struct };
 				line.start = shape.worldStart;
 				line.end = shape.worldEnd;
 
