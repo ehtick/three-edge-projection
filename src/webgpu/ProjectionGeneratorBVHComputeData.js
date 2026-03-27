@@ -125,7 +125,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					${ edgesStorage }[ edgeIndex ].end[ 2 ]
 				);
 
-				let i0 = ${ storage.index }[ triIndex * 3u ];
+				let i0 = ${ storage.index }[ triIndex * 3u + 0u ];
 				let i1 = ${ storage.index }[ triIndex * 3u + 1u ];
 				let i2 = ${ storage.index }[ triIndex * 3u + 2u ];
 
@@ -400,8 +400,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 			fn traverse( edgeIndex: u32, lineStart: vec3f, lineEnd: vec3f ) -> void {
 
 				var shape: ${ edgeLineShapeStruct };
-				shape.worldStart  = lineStart;
-				shape.worldEnd    = lineEnd;
+				shape.worldStart = lineStart;
+				shape.worldEnd = lineEnd;
 				shape.matrixWorld = mat4x4f(
 					1.0, 0.0, 0.0, 0.0,
 					0.0, 1.0, 0.0, 0.0,
@@ -409,7 +409,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					0.0, 0.0, 0.0, 1.0
 				);
 				shape.objectIndex = 0u;
-				shape.edgeIndex   = edgeIndex;
+				shape.edgeIndex = edgeIndex;
 				${ traversalFn }( shape );
 
 			}

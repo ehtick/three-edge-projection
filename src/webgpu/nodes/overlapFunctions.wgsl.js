@@ -1,18 +1,8 @@
-import { wgsl } from 'three/tsl';
 import { wgslTagFn } from '../lib/nodes/WGSLTagFnNode.js';
 import { constants } from './common.wgsl.js';
 import { trimResultStruct, overlapResultStruct, clipResultStruct } from './structs.wgsl.js';
 
 const { PARALLEL_EPSILON, AREA_EPSILON, DIST_EPSILON, VERTEX_EPSILON } = constants;
-
-// Per-invocation private storage for accumulated overlap intervals.
-// Exported so the kernel can include it when reading overlapCount / overlaps.
-const MAX_OVERLAPS_PER_EDGE = 512;
-export const overlapStorage = wgsl( /* wgsl */`
-	const MAX_OVERLAPS : u32 = ${ MAX_OVERLAPS_PER_EDGE }u;
-	var<private> overlaps     : array<vec2f, ${ MAX_OVERLAPS_PER_EDGE }>;
-	var<private> overlapCount : u32 = 0u;
-` );
 
 // Clips triangle (a, b, c) against a plane (plane.xyz = normal, plane.w = constant,
 // equation: dot(normal, p) + constant >= 0 is the kept side).
@@ -144,9 +134,9 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 
 		}
 
-		let d         = -dot( normal, a );
+		let d = - dot( normal, a );
 		let startDist = dot( normal, lineStart ) + d;
-		let endDist   = dot( normal, lineEnd ) + d;
+		let endDist = dot( normal, lineEnd ) + d;
 
 		// coplanar/parallel - only valid if the line is below the plane
 		let lineDir = normalize( lineEnd - lineStart );
@@ -164,13 +154,13 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 		}
 
 		let isStartBelow = startDist < 0.0;
-		let isEndBelow   = endDist   < 0.0;
+		let isEndBelow = endDist   < 0.0;
 
 		// both below - keep the full edge
 		if ( isStartBelow && isEndBelow ) {
 
 			result.start = lineStart;
-			result.end   = lineEnd;
+			result.end = lineEnd;
 			result.valid = true;
 			return result;
 
@@ -184,18 +174,18 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 		}
 
 		// straddling - clip at the plane intersection
-		let t        = -startDist / ( endDist - startDist );
+		let t = -startDist / ( endDist - startDist );
 		let hitPoint = mix( lineStart, lineEnd, t );
 
 		if ( isStartBelow ) {
 
 			result.start = lineStart;
-			result.end   = hitPoint;
+			result.end = hitPoint;
 
 		} else {
 
 			result.start = hitPoint;
-			result.end   = lineEnd;
+			result.end = lineEnd;
 
 		}
 
@@ -215,12 +205,13 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		// project everything to XZ
 		let ls = vec3f( lineStart.x, 0.0, lineStart.z );
-		let le = vec3f( lineEnd.x,   0.0, lineEnd.z   );
+		let le = vec3f( lineEnd.x, 0.0, lineEnd.z );
 		let fa = vec3f( a.x, 0.0, a.z );
 		let fb = vec3f( b.x, 0.0, b.z );
 		let fc = vec3f( c.x, 0.0, c.z );
 
 		// skip degenerate projected triangles
+		// TODO: Add degenerate triangle test function.
 		if ( abs( cross( fb - fa, fc - fa ).y ) <= ${ AREA_EPSILON } ) {
 
 			return result;
@@ -229,16 +220,16 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		let lineVec = le - ls;
 		let lineLen = length( lineVec );
-		let dir     = lineVec / lineLen;
+		let dir = lineVec / lineLen;
 
 		// cutting plane: orthogonal to the edge direction in XZ, passing through ls
-		let ortho     = normalize( cross( dir, vec3f( 0.0, 1.0, 0.0 ) ) );
+		let ortho = normalize( cross( dir, vec3f( 0.0, 1.0, 0.0 ) ) );
 		let planeDist = dot( ortho, ls );
 
 		// find the two intersections of triangle edges with the cutting plane
 		var intersectCount = 0u;
-		var triLineStart   = vec3f( 0.0 );
-		var triLineEnd     = vec3f( 0.0 );
+		var triLineStart = vec3f( 0.0 );
+		var triLineEnd = vec3f( 0.0 );
 
 		let triPts = array<vec3f, 3>( fa, fb, fc );
 		for ( var i = 0u; i < 3u; i = i + 1u ) {
@@ -250,13 +241,13 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 			let d2 = dot( ortho, p2 ) - planeDist;
 
 			let startOnPlane = abs( d1 ) < ${ DIST_EPSILON };
-			let endOnPlane   = abs( d2 ) < ${ DIST_EPSILON };
+			let endOnPlane = abs( d2 ) < ${ DIST_EPSILON };
 
-			var point        = vec3f( 0.0 );
+			var point = vec3f( 0.0 );
 			var edgeCrossing = false;
 			if ( ! startOnPlane && ! endOnPlane && d1 * d2 < 0.0 ) {
 
-				point        = mix( p1, p2, d1 / ( d1 - d2 ) );
+				point = mix( p1, p2, d1 / ( d1 - d2 ) );
 				edgeCrossing = true;
 
 			}
@@ -305,11 +296,11 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 		}
 
 		var tsStart = triLineStart;
-		var tsEnd   = triLineEnd;
+		var tsEnd = triLineEnd;
 		if ( dot( dir, ( triLineEnd - triLineStart ) / triSegLen ) < 0.0 ) {
 
 			tsStart = triLineEnd;
-			tsEnd   = triLineStart;
+			tsEnd = triLineStart;
 
 		}
 
@@ -317,7 +308,7 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 		let s1 = 0.0;
 		let e1 = dot( le - ls, dir );
 		let s2 = dot( tsStart - ls, dir );
-		let e2 = dot( tsEnd   - ls, dir );
+		let e2 = dot( tsEnd - ls, dir );
 
 		if ( e1 <= s2 || e2 <= s1 ) {
 
@@ -325,34 +316,21 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		}
 
-		result.t0    = max( s1, s2 ) / lineLen;
-		result.t1    = min( e1, e2 ) / lineLen;
+		result.t0 = max( s1, s2 ) / lineLen;
+		result.t1 = min( e1, e2 ) / lineLen;
 		result.valid = true;
 		return result;
 
 	}
 `;
 
-// Appends a raw [t0, t1] interval to the per-invocation private buffer.
-export const appendOverlap = wgslTagFn/* wgsl */`
-	${ [ overlapStorage ] }
-	fn appendOverlap( t0: f32, t1: f32 ) {
-
-		if ( overlapCount < MAX_OVERLAPS ) {
-
-			overlaps[ overlapCount ] = vec2f( t0, t1 );
-			overlapCount = overlapCount + 1u;
-
-		}
-
-	}
-`;
 
 // Returns true if the edge (lineStart -> lineEnd) lies entirely along the Y axis
 // when projected to XZ — i.e. the line direction is nearly (0, ±1, 0).
 export const isYProjectedLineDegenerate = wgslTagFn/* wgsl */`
 	fn isYProjectedLineDegenerate( lineStart: vec3f, lineEnd: vec3f ) -> bool {
 
+		// TODO: just measure the projected distance here
 		let dir = normalize( lineEnd - lineStart );
 		return abs( dir.y ) >= 1.0 - ${ VERTEX_EPSILON };
 
@@ -371,7 +349,7 @@ export const isLineTriangleEdge = wgslTagFn/* wgsl */`
 
 			let tp = triPts[ i ];
 			let ds = lineStart - tp;
-			let de = lineEnd   - tp;
+			let de = lineEnd - tp;
 			if ( ! startMatches && dot( ds, ds ) <= ${ VERTEX_EPSILON } ) {
 
 				startMatches = true;
@@ -393,52 +371,6 @@ export const isLineTriangleEdge = wgslTagFn/* wgsl */`
 		}
 
 		return startMatches && endMatches;
-
-	}
-`;
-
-// Sorts the private overlap buffer by t0 (insertion sort) then merges
-// adjacent/overlapping intervals in-place.
-export const sortAndMergeOverlaps = wgslTagFn/* wgsl */`
-	${ [ overlapStorage ] }
-	fn sortAndMergeOverlaps() {
-
-		// insertion sort by t0
-		for ( var i = 1u; i < overlapCount; i = i + 1u ) {
-
-			let key = overlaps[ i ];
-			var j   = i32( i ) - 1;
-			loop {
-
-				if ( j < 0 ) { break; }
-				if ( overlaps[ u32( j ) ].x <= key.x ) { break; }
-				overlaps[ u32( j + 1 ) ] = overlaps[ u32( j ) ];
-				j = j - 1;
-
-			}
-			overlaps[ u32( j + 1 ) ] = key;
-
-		}
-
-		// merge overlapping/adjacent intervals
-		if ( overlapCount == 0u ) { return; }
-
-		var writeIdx = 0u;
-		for ( var i = 1u; i < overlapCount; i = i + 1u ) {
-
-			if ( overlaps[ i ].x <= overlaps[ writeIdx ].y ) {
-
-				overlaps[ writeIdx ].y = max( overlaps[ writeIdx ].y, overlaps[ i ].y );
-
-			} else {
-
-				writeIdx = writeIdx + 1u;
-				overlaps[ writeIdx ] = overlaps[ i ];
-
-			}
-
-		}
-		overlapCount = writeIdx + 1u;
 
 	}
 `;

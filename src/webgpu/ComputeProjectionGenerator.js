@@ -87,9 +87,6 @@ export class ComputeProjectionGenerator {
 		const overflowFlagAttribute = new IndirectStorageBufferAttribute( 1, 1 );
 		const overflowFlagStorage = storage( overflowFlagAttribute, 'uint' );
 
-		console.log( edgeBufferDataU32.length * 4 * 1e-6 );
-
-
 		// fill out the edges array
 		const edgeStructStride = edgeStruct.getLength();
 		for ( let i = 0; i < batchCapacity; i ++ ) {

@@ -9,7 +9,7 @@ export const transformBVHBounds = wgslTagFn/* wgsl */`
 		let bMin = bounds.min;
 		let bMax = bounds.max;
 		var wMin = vec3f( 3e38, 3e38, 3e38 );
-		var wMax = vec3f( -3e38, -3e38, -3e38 );
+		var wMax = vec3f( - 3e38, - 3e38, - 3e38 );
 		for ( var ci = 0u; ci < 8u; ci = ci + 1u ) {
 
 			let corner = vec3f(
