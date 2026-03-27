@@ -16,6 +16,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { MeshBVH, SAH } from 'three-mesh-bvh';
 import { ComputeProjectionGenerator } from '../src/webgpu/ComputeProjectionGenerator.js';
+import { ProjectionGenerator } from '../src/ProjectionGenerator.js';
 
 const params = {
 	displayModel: true,
@@ -155,6 +156,14 @@ async function updateEdges() {
 	drawThroughProjection.geometry = new BufferGeometry();
 
 	const timeStart = window.performance.now();
+
+	// const gen2 = new ProjectionGenerator();
+	// gen2.includeIntersectionEdges = params.includeIntersectionEdges;
+	// await gen2.generateAsync( group );
+	// console.log( 'FIN' )
+
+
+
 
 	const generator = new ComputeProjectionGenerator( renderer );
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;

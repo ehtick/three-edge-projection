@@ -61,18 +61,18 @@ export function bvhcastEdges( edgesBvh, bvh, mesh, hiddenOverlapMap ) {
 
 				}
 
-				const highestTriangleY = Math.max( a.y, b.y, c.y );
-				const lowestTriangleY = Math.min( a.y, b.y, c.y );
+				const triMaxY = Math.max( a.y, b.y, c.y );
+				const triMinY = Math.min( a.y, b.y, c.y );
 				for ( let e = edgeOffset, le = edgeCount + edgeOffset; e < le; e ++ ) {
 
 					const _line = edges[ e ];
 
 					// Calculate edge and triangle bounds
-					const lowestLineY = Math.min( _line.start.y, _line.end.y );
-					const highestLineY = Math.max( _line.start.y, _line.end.y );
+					const lineMinY = Math.min( _line.start.y, _line.end.y );
+					const lineMaxY = Math.max( _line.start.y, _line.end.y );
 
 					// Skip if triangle is completely below the line
-					if ( highestTriangleY <= lowestLineY ) {
+					if ( triMaxY <= lineMinY ) {
 
 						continue;
 
@@ -86,7 +86,7 @@ export function bvhcastEdges( edgesBvh, bvh, mesh, hiddenOverlapMap ) {
 					}
 
 					// Retrieve the portion of line that is below the triangle plane
-					if ( highestLineY < lowestTriangleY ) {
+					if ( lineMaxY < triMinY ) {
 
 						_beneathLine.copy( _line );
 

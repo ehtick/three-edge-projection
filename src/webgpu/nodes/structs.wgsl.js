@@ -1,5 +1,16 @@
 import { StructTypeNode } from 'three/webgpu';
 
+export const internalEdge = new StructTypeNode( {
+	start: 'vec3',
+	end: 'vec3',
+} );
+
+export const internalTri = new StructTypeNode( {
+	a: 'vec3',
+	b: 'vec3',
+	c: 'vec3',
+} );
+
 export const edgeStruct = new StructTypeNode( {
 	start: 'array<f32, 3>',
 	end: 'array<f32, 3>',

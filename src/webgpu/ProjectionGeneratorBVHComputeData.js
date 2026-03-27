@@ -11,6 +11,7 @@ import {
 	getProjectedOverlapRange,
 	isLineTriangleEdge,
 } from './nodes/overlapFunctions.wgsl.js';
+import { internalEdge, internalTri } from './nodes/structs.wgsl.js';
 
 // Shape struct carrying world-space line endpoints plus the object-to-world
 // matrix (set by transformShapeFn; identity at top level so world-space
@@ -109,17 +110,20 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	getTriangleEdgeOverlapsFn( { edgesStorage, overlapsStorage, overlapsCountStorage } ) {
 
 		const { storage } = this;
-		const { DIST_EPSILON } = overlapConstants;
+		const { DIST_EPSILON, DOUBLE_SIDE, BACK_SIDE } = overlapConstants;
 
 		return wgslTagFn/* wgsl */`
 			fn computeTriangleEdgeOverlap( edgeIndex: u32, objectIndex: u32, triIndex: u32 ) -> void {
 
-				let lineWorldStart = vec3f(
+				var tri: ${ internalTri };
+				var line: ${ internalEdge };
+
+				line.start = vec3f(
 					${ edgesStorage }[ edgeIndex ].start[ 0 ],
 					${ edgesStorage }[ edgeIndex ].start[ 1 ],
 					${ edgesStorage }[ edgeIndex ].start[ 2 ]
 				);
-				let lineWorldEnd = vec3f(
+				line.end = vec3f(
 					${ edgesStorage }[ edgeIndex ].end[ 0 ],
 					${ edgesStorage }[ edgeIndex ].end[ 1 ],
 					${ edgesStorage }[ edgeIndex ].end[ 2 ]
@@ -130,19 +134,18 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				let i2 = ${ storage.index }[ triIndex * 3u + 2u ];
 
 				let matrixWorld = ${ storage.transforms }[ objectIndex ].matrixWorld;
-				let a = ( matrixWorld * vec4f( ${ storage.attributes }[ i0 ].position.xyz, 1.0 ) ).xyz;
-				let b = ( matrixWorld * vec4f( ${ storage.attributes }[ i1 ].position.xyz, 1.0 ) ).xyz;
-				let c = ( matrixWorld * vec4f( ${ storage.attributes }[ i2 ].position.xyz, 1.0 ) ).xyz;
+				tri.a = ( matrixWorld * vec4f( ${ storage.attributes }[ i0 ].position.xyz, 1.0 ) ).xyz;
+				tri.b = ( matrixWorld * vec4f( ${ storage.attributes }[ i1 ].position.xyz, 1.0 ) ).xyz;
+				tri.c = ( matrixWorld * vec4f( ${ storage.attributes }[ i2 ].position.xyz, 1.0 ) ).xyz;
 
 				// back-face cull based on per-object side (0=double, 1=front, -1=back)
 				let inverted  = determinant( matrixWorld ) < 0.0;
-				let triNormal = cross( b - a, c - a );
+				let triNormal = cross( tri.b - tri.a, tri.c - tri.a );
 				let side = ${ storage.transforms }[ objectIndex ].side;
-				if ( side != 0 ) {
+				if ( side != ${ DOUBLE_SIDE } ) {
 
-					let isFrontUp = ( triNormal.y > 0.0 ) != inverted;
-					let keepFront = side > 0;
-					if ( isFrontUp != keepFront ) {
+					let faceUp = ( triNormal.y > 0.0 ) != inverted;
+					if ( faceUp == ( side == ${ BACK_SIDE } ) ) {
 
 						return;
 
@@ -150,18 +153,21 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				}
 
-				let lineMinY = min( lineWorldStart.y, lineWorldEnd.y );
-				let lineMaxY = max( lineWorldStart.y, lineWorldEnd.y );
+				let triMaxY = max( max( tri.a.y, tri.b.y ), tri.c.y );
+				let triMinY = min( min( tri.a.y, tri.b.y ), tri.c.y );
+
+				let lineMinY = min( line.start.y, line.end.y );
+				let lineMaxY = max( line.start.y, line.end.y );
 
 				// skip triangles entirely below the edge
-				if ( max( max( a.y, b.y ), c.y ) <= lineMinY ) {
+				if ( triMaxY <= lineMinY ) {
 
 					return;
 
 				}
 
 				// skip if the edge lies on this triangle
-				if ( ${ isLineTriangleEdge }( lineWorldStart, lineWorldEnd, a, b, c ) ) {
+				if ( ${ isLineTriangleEdge }( tri, line ) ) {
 
 					return;
 
@@ -169,12 +175,12 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				// trim edge to the portion below the triangle plane; if the
 				// entire line is already below the triangle, use the full line
-				let lowestTriY = min( min( a.y, b.y ), c.y );
-				var trimStart = lineWorldStart;
-				var trimEnd   = lineWorldEnd;
+				let lowestTriY = min( min( tri.a.y, tri.b.y ), tri.c.y );
+				var trimStart = line.start;
+				var trimEnd   = line.end;
 				if ( lineMaxY >= lowestTriY ) {
 
-					let trimResult = ${ trimToBeneathTriPlane }( a, b, c, lineWorldStart, lineWorldEnd );
+					let trimResult = ${ trimToBeneathTriPlane }( tri.a, tri.b, tri.c, line.start, line.end );
 					if ( ! trimResult.valid ) {
 
 						return;
@@ -194,7 +200,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				}
 
 				// get projected overlap range in trimmed-edge space
-				var overlapRange = ${ getProjectedOverlapRange }( trimStart, trimEnd, a, b, c );
+				var overlapRange = ${ getProjectedOverlapRange }( trimStart, trimEnd, tri.a, tri.b, tri.c );
 				if ( ! overlapRange.valid ) {
 
 					return;
@@ -202,10 +208,10 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				}
 
 				// remap t values from trimmed-edge space to original-edge space
-				let lineDir    = normalize( lineWorldEnd - lineWorldStart );
-				let lineLen    = length( lineWorldEnd - lineWorldStart );
-				let tTrimStart = dot( trimStart - lineWorldStart, lineDir ) / lineLen;
-				let tTrimEnd   = dot( trimEnd   - lineWorldStart, lineDir ) / lineLen;
+				let lineDir    = normalize( line.end - line.start );
+				let lineLen    = length( line.end - line.start );
+				let tTrimStart = dot( trimStart - line.start, lineDir ) / lineLen;
+				let tTrimEnd   = dot( trimEnd   - line.start, lineDir ) / lineLen;
 				let t0 = clamp( tTrimStart + overlapRange.t0 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
 				let t1 = clamp( tTrimStart + overlapRange.t1 * ( tTrimEnd - tTrimStart ), 0.0, 1.0 );
 				if ( t0 >= t1 ) {
@@ -245,6 +251,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	getCollectTriEdgePairsFn( { pairsStorage, pairCountsStorage, overflowFlagStorage } ) {
 
 		const { storage } = this;
+		const { DOUBLE_SIDE, BACK_SIDE } = overlapConstants;
 
 		const boundsOrderFn = wgslTagFn/* wgsl */`
 			fn boundsOrder( shape: ${ edgeLineShapeStruct }, splitAxis: u32, node: ${ bvhNodeStruct } ) -> bool {
@@ -313,9 +320,12 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				result.didHit = false;
 				result.dist = bestDist;
 
-				let lineWorldStart = shape.worldStart;
-				let lineWorldEnd = shape.worldEnd;
-				let lineMinY = min( lineWorldStart.y, lineWorldEnd.y );
+				var tri: ${ internalTri };
+				var line: ${ internalEdge };
+				line.start = shape.worldStart;
+				line.end = shape.worldEnd;
+
+				let lineMinY = min( line.start.y, line.end.y );
 				let matrixWorld = shape.matrixWorld;
 				let inverted = determinant( matrixWorld ) < 0.0;
 
@@ -329,18 +339,17 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					let localB = ${ storage.attributes }[ i1 ].position.xyz;
 					let localC = ${ storage.attributes }[ i2 ].position.xyz;
 
-					let a = ( matrixWorld * vec4f( localA, 1.0 ) ).xyz;
-					let b = ( matrixWorld * vec4f( localB, 1.0 ) ).xyz;
-					let c = ( matrixWorld * vec4f( localC, 1.0 ) ).xyz;
+					tri.a = ( matrixWorld * vec4f( localA, 1.0 ) ).xyz;
+					tri.b = ( matrixWorld * vec4f( localB, 1.0 ) ).xyz;
+					tri.c = ( matrixWorld * vec4f( localC, 1.0 ) ).xyz;
 
 					// back-face cull based on per-object side (0=double, 1=front, -1=back)
-					let triNormal = cross( b - a, c - a );
+					let triNormal = cross( tri.b - tri.a, tri.c - tri.a );
 					let side = ${ storage.transforms }[ shape.objectIndex ].side;
-					if ( side != 0 ) {
+					if ( side != ${ DOUBLE_SIDE } ) {
 
-						let isFrontUp = ( triNormal.y > 0.0 ) != inverted;
-						let keepFront = side > 0;
-						if ( isFrontUp != keepFront ) {
+						let faceUp = ( triNormal.y > 0.0 ) != inverted;
+						if ( faceUp == ( side == ${ BACK_SIDE } ) ) {
 
 							continue;
 
@@ -349,7 +358,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					}
 
 					// skip triangles entirely below the edge
-					let highestTriY = max( max( a.y, b.y ), c.y );
+					let highestTriY = max( max( tri.a.y, tri.b.y ), tri.c.y );
 					if ( highestTriY <= lineMinY ) {
 
 						continue;
@@ -357,7 +366,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					}
 
 					// skip if the edge lies on this triangle
-					if ( ${ isLineTriangleEdge }( lineWorldStart, lineWorldEnd, a, b, c ) ) {
+					if ( ${ isLineTriangleEdge }( tri, line ) ) {
 
 						continue;
 

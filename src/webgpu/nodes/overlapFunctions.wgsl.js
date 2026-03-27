@@ -1,6 +1,6 @@
 import { wgslTagFn } from '../lib/nodes/WGSLTagFnNode.js';
 import { constants } from './common.wgsl.js';
-import { trimResultStruct, overlapResultStruct, clipResultStruct } from './structs.wgsl.js';
+import { trimResultStruct, overlapResultStruct, clipResultStruct, internalTri, internalEdge } from './structs.wgsl.js';
 
 const { PARALLEL_EPSILON, AREA_EPSILON, DIST_EPSILON, VERTEX_EPSILON } = constants;
 
@@ -340,16 +340,16 @@ export const isYProjectedLineDegenerate = wgslTagFn/* wgsl */`
 // Returns true if both endpoints of the edge (lineStart -> lineEnd) coincide
 // with two vertices of triangle (a, b, c) — i.e. the edge is a triangle edge.
 export const isLineTriangleEdge = wgslTagFn/* wgsl */`
-	fn isLineTriangleEdge( lineStart: vec3f, lineEnd: vec3f, a: vec3f, b: vec3f, c: vec3f ) -> bool {
+	fn isLineTriangleEdge( tri: ${ internalTri }, line: ${ internalEdge } ) -> bool {
 
-		let triPts = array<vec3f, 3>( a, b, c );
+		let triPts = array<vec3f, 3>( tri.a, tri.b, tri.c );
 		var startMatches = false;
 		var endMatches   = false;
 		for ( var i = 0u; i < 3u; i = i + 1u ) {
 
 			let tp = triPts[ i ];
-			let ds = lineStart - tp;
-			let de = lineEnd - tp;
+			let ds = line.start - tp;
+			let de = line.end - tp;
 			if ( ! startMatches && dot( ds, ds ) <= ${ VERTEX_EPSILON } ) {
 
 				startMatches = true;
