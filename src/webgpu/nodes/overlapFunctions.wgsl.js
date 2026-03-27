@@ -213,41 +213,46 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 		var result: ${ overlapResultStruct };
 
 		// project everything to XZ
-		let ls = vec3f( line.start.x, 0.0, line.start.z );
-		let le = vec3f( line.end.x, 0.0, line.end.z );
-		let fa = vec3f( tri.a.x, 0.0, tri.a.z );
-		let fb = vec3f( tri.b.x, 0.0, tri.b.z );
-		let fc = vec3f( tri.c.x, 0.0, tri.c.z );
+		var _tri = tri;
+		_tri.a.y = 0.0;
+		_tri.b.y = 0.0;
+		_tri.c.y = 0.0;
+
+		var _line = line;
+		_line.start.y = 0.0;
+		_line.end.y = 0.0;
 
 		// skip degenerate projected triangles
 		// TODO: Add degenerate triangle test function.
-		if ( abs( cross( fb - fa, fc - fa ).y ) <= ${ AREA_EPSILON } ) {
+		if ( length( cross( _tri.c - _tri.b, _tri.a - _tri.b ) * 0.5 ) <= ${ AREA_EPSILON } ) {
 
 			return result;
 
 		}
 
-		let lineVec = le - ls;
-		let lineLen = length( lineVec );
-		let dir = lineVec / lineLen;
+		var dir = _line.end - _line.start;
+		let lineDistance = length( dir );
+		dir = dir / lineDistance;
 
+		// TODO: this is slightly different (not using normal which could be +-)
 		// cutting plane: orthogonal to the edge direction in XZ, passing through ls
-		let ortho = normalize( cross( dir, vec3f( 0.0, 1.0, 0.0 ) ) );
-		let planeDist = dot( ortho, ls );
+		let planeNormal = normalize( cross( dir, vec3f( 0.0, 1.0, 0.0 ) ) );
+		let planeConstant = dot( planeNormal, _line.start );
 
 		// find the two intersections of triangle edges with the cutting plane
 		var intersectCount = 0u;
 		var triLineStart = vec3f( 0.0 );
 		var triLineEnd = vec3f( 0.0 );
 
-		let triPts = array<vec3f, 3>( fa, fb, fc );
-		for ( var i = 0u; i < 3u; i = i + 1u ) {
+		let triPts = array<vec3f, 3>( _tri.a, _tri.b, _tri.c );
+		for ( var i = 0u; i < 3u; i ++ ) {
 
 			let p1 = triPts[ i ];
 			let p2 = triPts[ ( i + 1u ) % 3u ];
 
-			let d1 = dot( ortho, p1 ) - planeDist;
-			let d2 = dot( ortho, p2 ) - planeDist;
+			// TODO: this is inconsistent
+			let d1 = dot( planeNormal, p1 ) - planeConstant;
+			let d2 = dot( planeNormal, p2 ) - planeConstant;
 
 			let startOnPlane = abs( d1 ) < ${ DIST_THRESHOLD };
 			let endOnPlane = abs( d2 ) < ${ DIST_THRESHOLD };
@@ -256,7 +261,8 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 			var edgeCrossing = false;
 			if ( ! startOnPlane && ! endOnPlane && d1 * d2 < 0.0 ) {
 
-				point = mix( p1, p2, d1 / ( d1 - d2 ) );
+				let t = d1 / ( d1 - d2 );
+				point = mix( p1, p2, t );
 				edgeCrossing = true;
 
 			}
@@ -279,8 +285,8 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 				}
 
-				intersectCount = intersectCount + 1u;
-				if ( intersectCount >= 2u ) {
+				intersectCount ++;
+				if ( intersectCount == 2u ) {
 
 					break;
 
@@ -315,9 +321,9 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		// project both segments onto dir and compute the overlap
 		let s1 = 0.0;
-		let e1 = dot( le - ls, dir );
-		let s2 = dot( tsStart - ls, dir );
-		let e2 = dot( tsEnd - ls, dir );
+		let e1 = dot( _line.end - _line.start, dir );
+		let s2 = dot( tsStart - _line.start, dir );
+		let e2 = dot( tsEnd - _line.start, dir );
 
 		if ( e1 <= s2 || e2 <= s1 ) {
 
@@ -325,8 +331,8 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 		}
 
-		result.t0 = max( s1, s2 ) / lineLen;
-		result.t1 = min( e1, e2 ) / lineLen;
+		result.t0 = max( s1, s2 ) / lineDistance;
+		result.t1 = min( e1, e2 ) / lineDistance;
 		result.valid = true;
 		return result;
 
