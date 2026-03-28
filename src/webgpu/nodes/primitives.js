@@ -56,7 +56,7 @@ export const PlaneWGSL = {
 
 			var plane: ${ planeStruct };
 			plane.normal = norm;
-			plane.constant = - dot( norm, point );
+			plane.constant = - dot( point, norm );
 			return plane;
 
 		}

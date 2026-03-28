@@ -58,11 +58,11 @@ export const clipTriangleToPlane = wgslTagFn/* wgsl */`
 
 			}
 
-			let apex     = pts[ apexIdx ];
+			let apex = pts[ apexIdx ];
 			let clipped0 = pts[ ( apexIdx + 1u ) % 3u ];
 			let clipped1 = pts[ ( apexIdx + 2u ) % 3u ];
 
-			let apexDist     = dists[ apexIdx ];
+			let apexDist = dists[ apexIdx ];
 			let clipped0Dist = dists[ ( apexIdx + 1u ) % 3u ];
 			let clipped1Dist = dists[ ( apexIdx + 2u ) % 3u ];
 
@@ -143,8 +143,8 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 		let isStartOnPlane = abs( startDist ) < ${ PARALLEL_EPSILON };
 		let isEndOnPlane = abs( endDist ) < ${ PARALLEL_EPSILON };
 
-		let isStartBelow = startDist < 0.0;
-		let isEndBelow = endDist < 0.0;
+		let isStartBelow = ! isStartOnPlane && startDist < 0.0;
+		let isEndBelow = ! isEndOnPlane && endDist < 0.0;
 
 		// coplanar/parallel - only valid if the line is below the plane
 		let lineDir = normalize( line.end - line.start );
@@ -255,40 +255,49 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 			let startIntersects = abs( distToStart ) < ${ DIST_THRESHOLD };
 			let endIntersects = abs( distToEnd ) < ${ DIST_THRESHOLD };
 
+			// check of the edge intersects
 			var point = vec3f( 0.0 );
 			var edgeIntersects = false;
-			if ( ! startIntersects && ! endIntersects && distToStart * distToEnd < 0.0 ) {
+			if ( startIntersects ) {
+
+				// NOTE: contrasting with the CPU implementation, this function does not consider endpoints lying on
+				// the edge plane to be "intersecting". Removing "continue" here and using the point yields missing
+				// edge artifacts, possibly due to floating point error and epsilons that are not applied appropriately.
+				// This may cause issues elsewhere when an endpoint is lying on the plane but this is yielding better
+				// results for the test data.
+
+				// point = p1;
+				continue;
+
+			} else if ( endIntersects ) {
+
+				continue;
+
+			} else if ( ( distToStart < 0.0 ) == ( distToEnd < 0.0 ) ) {
+
+				continue;
+
+			} else {
 
 				let t = distToStart / ( distToStart - distToEnd );
 				point = mix( p1, p2, t );
-				edgeIntersects = true;
 
 			}
 
-			if ( ( edgeIntersects && ! endIntersects ) || startIntersects ) {
+			if ( intersectCount == 0u ) {
 
-				if ( startIntersects && ! edgeIntersects ) {
+				triLineStart = point;
 
-					point = p1;
+			} else if ( intersectCount == 1u ) {
 
-				}
+				triLineEnd = point;
 
-				if ( intersectCount == 0u ) {
+			}
 
-					triLineStart = point;
+			intersectCount ++;
+			if ( intersectCount == 2u ) {
 
-				} else {
-
-					triLineEnd = point;
-
-				}
-
-				intersectCount ++;
-				if ( intersectCount == 2u ) {
-
-					break;
-
-				}
+				break;
 
 			}
 
