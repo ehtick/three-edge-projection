@@ -16,7 +16,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { MeshBVH, SAH } from 'three-mesh-bvh';
 import { ComputeProjectionGenerator } from '../src/webgpu/ComputeProjectionGenerator.js';
-import { ProjectionGenerator } from '../src/ProjectionGenerator.js';
 
 const params = {
 	displayModel: true,
@@ -25,6 +24,21 @@ const params = {
 	regenerate: () => {
 
 		updateEdges();
+
+	},
+	rotate: () => {
+
+		group.quaternion.random();
+		group.position.set( 0, 0, 0 );
+		group.updateMatrixWorld( true );
+
+		const box = new Box3();
+		box.setFromObject( model, true );
+		box.getCenter( group.position ).multiplyScalar( - 1 );
+		group.position.y = Math.max( 0, - box.min.y ) + 1;
+		group.updateMatrixWorld( true );
+
+		needsRender = true;
 
 	},
 };
@@ -124,7 +138,8 @@ async function init() {
 	gui = new GUI();
 	gui.add( params, 'displayModel' ).onChange( () => needsRender = true );
 	gui.add( params, 'displayDrawThroughProjection' ).onChange( () => needsRender = true );
-	gui.add( params, 'includeIntersectionEdges' ).onChange( () => updateEdges() );
+	gui.add( params, 'includeIntersectionEdges' );
+	gui.add( params, 'rotate' );
 	gui.add( params, 'regenerate' );
 
 	render();
@@ -150,26 +165,21 @@ async function updateEdges() {
 
 	projection.geometry.dispose();
 	projection.material.dispose();
+	projection.geometry = new BufferGeometry();
+
 	drawThroughProjection.geometry.dispose();
 	drawThroughProjection.material.dispose();
-	projection.geometry = new BufferGeometry();
 	drawThroughProjection.geometry = new BufferGeometry();
 
+	needsRender = true;
+
 	const timeStart = window.performance.now();
-
-	// const gen2 = new ProjectionGenerator();
-	// gen2.includeIntersectionEdges = params.includeIntersectionEdges;
-	// await gen2.generateAsync( group );
-	// console.log( 'FIN' )
-
-
-
-
 	const generator = new ComputeProjectionGenerator( renderer );
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;
-	const result = await generator.generate( group );
 
+	const result = await generator.generate( group );
 	projection.geometry.dispose();
+	projection.material.dispose();
 	projection.geometry = result.getVisibleLineGeometry();
 
 	drawThroughProjection.geometry.dispose();
