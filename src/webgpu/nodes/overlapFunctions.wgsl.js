@@ -249,7 +249,6 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 			let p1 = triPts[ i ];
 			let p2 = triPts[ ( i + 1u ) % 3u ];
 
-			// TODO: this is inconsistent
 			let distToStart = ${ PlaneWGSL.distanceToPoint }( orthoPlane, p1 );
 			let distToEnd = ${ PlaneWGSL.distanceToPoint }( orthoPlane, p2 );
 

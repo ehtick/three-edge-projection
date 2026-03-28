@@ -26,14 +26,24 @@ export const TriWGSL = {
 	getNormal: wgslTagFn/* wgsl */`
 		fn tri_getNormal( tri: ${ triStruct } ) -> vec3f {
 
-			return normalize( cross( tri.c - tri.b, tri.a - tri.b ) );
+			let n = cross( tri.c - tri.b, tri.a - tri.b );
+			let lenSq = dot( n, n );
+			if ( lenSq < 1e-12 ) {
+
+				return vec3( 0.0 );
+
+			}
+
+			return n * inverseSqrt( lenSq );
 
 		}
 	`,
 	getArea: wgslTagFn/* wgsl */`
 		fn tri_getArea( tri: ${ triStruct } ) -> f32 {
 
-			return length( cross( tri.c - tri.b, tri.a - tri.b ) * 0.5 );
+			let n = cross( tri.c - tri.b, tri.a - tri.b );
+			let lenSq = dot( n, n );
+			return sqrt( lenSq ) * 0.5;
 
 		}
 	`
