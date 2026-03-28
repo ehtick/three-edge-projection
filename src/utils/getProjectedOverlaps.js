@@ -25,19 +25,19 @@ export function getOverlapRange( line, overlapLine ) {
 	_v1.subVectors( overlapLine.end, line.start );
 
 	const length = _dir.length();
-	let d0 = _v0.length() / length;
-	let d1 = _v1.length() / length;
+	let t0 = _v0.length() / length;
+	let t1 = _v1.length() / length;
 
-	d0 = Math.min( Math.max( d0, 0 ), 1 );
-	d1 = Math.min( Math.max( d1, 0 ), 1 );
+	t0 = Math.min( Math.max( t0, 0 ), 1 );
+	t1 = Math.min( Math.max( t1, 0 ), 1 );
 
-	if ( Math.abs( d0 - d1 ) <= DIST_EPSILON ) {
+	if ( Math.abs( t0 - t1 ) <= DIST_EPSILON ) {
 
 		return null;
 
 	}
 
-	return [ d0, d1 ];
+	return [ t0, t1 ];
 
 }
 
