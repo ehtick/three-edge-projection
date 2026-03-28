@@ -282,15 +282,42 @@ export class BVHComputeData {
 			shapeStruct,
 			resultStruct,
 
-			boundsOrderFn,
+			boundsOrderFn = null,
 			intersectsBoundsFn,
 			intersectRangeFn,
-			transformShapeFn,
-			transformResultFn,
+			transformShapeFn = null,
+			transformResultFn = null,
 		} = options;
 
 		const { storage } = this;
 		const { BVH_STACK_DEPTH, INFINITY } = constants;
+
+		// handle optional functions
+		let transformResultSnippet = '';
+		if ( transformResultFn ) {
+
+			transformResultSnippet = wgslTagCode/* wgsl */`${ transformResultFn }( &bestHit, t );`;
+
+		}
+
+		let transformShapeSnippet = '';
+		if ( transformShapeFn ) {
+
+			transformShapeSnippet = wgslTagCode/* wgsl */`${ transformShapeFn }( &localShape, t );`;
+
+		}
+
+		let leftToRightSnippet = '';
+		if ( boundsOrderFn ) {
+
+			leftToRightSnippet = wgslTagCode/* wgsl */`
+				let leftToRight = ${ boundsOrderFn }( shape, splitAxis, node );
+				c1 = select( rightIndex, leftIndex, leftToRight );
+				c2 = select( leftIndex, rightIndex, leftToRight );
+			`;
+
+		}
+
 		const getFnBody = leafSnippet => {
 
 			// returns a function with a snippet inserted for the leaf intersection test
@@ -338,9 +365,9 @@ export class BVHComputeData {
 						let splitAxis = infoX & 0x0000ffffu;
 						let rightIndex = nodeIndex + infoY;
 
-						let leftToRight = ${ boundsOrderFn }( shape, splitAxis, node );
-						let c1 = select( rightIndex, leftIndex, leftToRight );
-						let c2 = select( leftIndex, rightIndex, leftToRight );
+						let c1 = rightIndex;
+						let c2 = leftIndex;
+						${ leftToRightSnippet }
 
 						pointer = pointer + 1;
 						stack[ pointer ] = c2;
@@ -395,14 +422,14 @@ export class BVHComputeData {
 
 						// Transform shape into object local space
 						var localShape = shape;
-						${ transformShapeFn }( &localShape, t );
+						${ transformShapeSnippet }
 						let blasHit = ${ blasFn( { shape: 'localShape', rootNodeIndex: 'transform.nodeOffset', bestDist: 'bestHit.dist' } ) };
 						if ( blasHit.didHit && blasHit.dist < bestHit.dist ) {
 
 							bestHit = blasHit;
 							bestHit.objectIndex = t;
 
-							${ transformResultFn }( &bestHit, t );
+							${ transformResultSnippet }
 
 						}
 

@@ -7,12 +7,6 @@ export const edgeStruct = new StructTypeNode( {
 }, 'Edge' );
 edgeStruct.getLength = () => 7;
 
-export const overlapResultStruct = new StructTypeNode( {
-	t0: 'f32',
-	t1: 'f32',
-	valid: 'bool',
-}, 'OverlapResult' );
-
 export const clipResultStruct = new StructTypeNode( {
 	count: 'uint',
 	a0: 'vec3f',

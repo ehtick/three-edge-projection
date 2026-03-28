@@ -69,23 +69,17 @@ export class ComputeProjectionGenerator {
 		const edgeBufferData = new Float32Array( batchCapacity * edgeStruct.getLength() );
 		const edgeBufferDataU32 = new Uint32Array( edgeBufferData.buffer );
 		const edgeBufferAttribute = new StorageBufferAttribute( edgeBufferData, edgeStruct.getLength() );
-		const edgeStorage = storage( edgeBufferAttribute, edgeStruct ).toReadOnly().setName( 'edges' );
 
 		// store the triangle / edge pairs to
 		const triEdgePairsAttribute = new IndirectStorageBufferAttribute( batchCapacity * 70, triEdgePairStruct.getLength() );
-		const triEdgeStorage = storage( triEdgePairsAttribute, triEdgePairStruct ).setName( 'TriEdge' );
-
 		const triEdgePairsSizeAttribute = new IndirectStorageBufferAttribute( 3, 1 );
-		const triEdgeSizeStorage = storage( triEdgePairsSizeAttribute, 'uint' );
-
 		const overlapsAttribute = new IndirectStorageBufferAttribute( batchCapacity * 70, overlapRecordStruct.getLength() );
-		const overlapStorage = storage( overlapsAttribute, overlapRecordStruct ).setName( 'overlaps' );
-
 		const overlapsSizeAttribute = new IndirectStorageBufferAttribute( 3, 1 );
-		const overlapSizeStorage = storage( overlapsSizeAttribute, 'uint' );
-
 		const overflowFlagAttribute = new IndirectStorageBufferAttribute( 1, 1 );
-		const overflowFlagStorage = storage( overflowFlagAttribute, 'uint' );
+
+		const triEdgePairsStorage = storage( triEdgePairsAttribute, triEdgePairStruct ).setName( 'TriEdge' );
+		const triEdgePairsSizeStorage = storage( triEdgePairsSizeAttribute, 'uint' ).toAtomic();
+		const overflowFlagStorage = storage( overflowFlagAttribute, 'uint' ).setName( 'overflowFlag' ).toAtomic();
 
 		// fill out the edges array
 		const edgeStructStride = edgeStruct.getLength();
@@ -107,10 +101,11 @@ export class ComputeProjectionGenerator {
 		const bvhComputeData = new ProjectionGeneratorBVHComputeData( meshes );
 		bvhComputeData.update();
 		bvhComputeData.fns.collectTriEdgePairs = bvhComputeData.getCollectTriEdgePairsFn( {
-			pairsStorage: storage( triEdgePairsAttribute, triEdgePairStruct ).setName( 'triEdges' ),
-			pairCountsStorage: storage( triEdgePairsSizeAttribute, 'uint' ).setName( 'triEdgesSize' ).toAtomic(),
-			overflowFlagStorage: storage( overflowFlagAttribute, 'uint' ).setName( 'overflowFlag' ).toAtomic(),
+			pairsStorage: triEdgePairsStorage,
+			pairCountsStorage: triEdgePairsSizeStorage,
+			overflowFlagStorage: overflowFlagStorage,
 		} );
+
 		// initialize kernels
 		const edgePairsKernel = new EdgePairsKernel();
 		edgePairsKernel.edges = edgeBufferAttribute;
@@ -127,18 +122,14 @@ export class ComputeProjectionGenerator {
 		//
 
 		// accumulate potential triangle-edge overlap pairs
-		await renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchCapacity ) );
+		renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchCapacity ) );
 
 		// read back actual pair count before dispatching K3
-		const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
-		const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
+		// const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
+		// const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
 
 		// generate all overlaps — dispatch only over valid pairs
-		if ( pairCount > 0 ) {
-
-			renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( pairCount ) );
-
-		}
+		renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( 3964384 ) );
 
 		//
 
@@ -147,6 +138,7 @@ export class ComputeProjectionGenerator {
 			renderer.getArrayBufferAsync( overlapsAttribute ),
 			renderer.getArrayBufferAsync( overlapsSizeAttribute ),
 		] );
+
 
 		const overlapsF32 = new Float32Array( overlaps );
 		const overlapsU32 = new Uint32Array( overlaps );
@@ -200,7 +192,7 @@ export class ComputeProjectionGenerator {
 		}
 
 		const overflow = new Uint32Array( await renderer.getArrayBufferAsync( overflowFlagAttribute ) );
-		console.log( overflow[ 0 ] )
+		console.log( overflow[ 0 ] );
 
 		return collector;
 

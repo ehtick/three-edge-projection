@@ -117,14 +117,6 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		const { storage } = this;
 		const { DOUBLE_SIDE, BACK_SIDE } = overlapConstants;
 
-		const boundsOrderFn = wgslTagFn/* wgsl */`
-			fn boundsOrder( shape: ${ edgeLineShapeStruct }, splitAxis: u32, node: ${ bvhNodeStruct } ) -> bool {
-
-				return true;
-
-			}
-		`;
-
 		const intersectsBoundsFn = wgslTagFn/* wgsl */`
 			fn intersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> f32 {
 
@@ -165,12 +157,6 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				localShape.matrixWorld = ${ storage.transforms }[ objectIndex ].matrixWorld;
 				localShape.objectIndex = objectIndex;
-
-			}
-		`;
-
-		const transformResultFn = wgslTagFn/* wgsl */`
-			fn transformResult( result: ptr<function, ${ edgeOverlapResultStruct }>, objectIndex: u32 ) -> void {
 
 			}
 		`;
@@ -260,11 +246,9 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 			name: 'collectTriEdgePairs',
 			shapeStruct: edgeLineShapeStruct,
 			resultStruct: edgeOverlapResultStruct,
-			boundsOrderFn,
 			intersectsBoundsFn,
 			intersectRangeFn,
 			transformShapeFn,
-			transformResultFn,
 		} );
 
 		return wgslTagFn/* wgsl */`
