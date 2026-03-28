@@ -130,7 +130,6 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 		// compute the triangle plane, ensuring the normal faces up
 		let triNormal = ${ TriWGSL.getNormal }( tri );
 		var plane = ${ PlaneWGSL.fromNormalAndCoplanarPoint }( triNormal, tri.a );
-
 		if ( plane.normal.y < 0.0 ) {
 
 			plane.normal *= - 1.0;
@@ -138,8 +137,8 @@ export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 
 		}
 
-		let startDist = dot( plane.normal, line.start ) + plane.constant;
-		let endDist = dot( plane.normal, line.end ) + plane.constant;
+		let startDist = ${ PlaneWGSL.distanceToPoint }( plane, line.start );
+		let endDist = ${ PlaneWGSL.distanceToPoint }( plane, line.end );
 
 		let isStartOnPlane = abs( startDist ) < ${ PARALLEL_EPSILON };
 		let isEndOnPlane = abs( endDist ) < ${ PARALLEL_EPSILON };

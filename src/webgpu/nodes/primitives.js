@@ -51,4 +51,11 @@ export const PlaneWGSL = {
 
 		}
 	`,
+	distanceToPoint: wgslTagFn/* wgsl */`
+		fn plane_distanceToPoint( plane: ${ planeStruct }, point: vec3f ) -> f32 {
+
+			return dot( plane.normal, point ) + plane.constant;
+
+		}
+	`,
 };
