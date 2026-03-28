@@ -206,13 +206,13 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					// get the [0, 1] t values
 					let l = length( dir );
-					var d0 = length( v0 ) / l;
-					var d1 = length( v1 ) / l;
+					var t0 = length( v0 ) / l;
+					var t1 = length( v1 ) / l;
 
-					d0 = min( max( d0, 0.0 ), 1.0 );
-					d1 = min( max( d1, 0.0 ), 1.0 );
+					t0 = min( max( t0, 0.0 ), 1.0 );
+					t1 = min( max( t1, 0.0 ), 1.0 );
 
-					if ( abs( d0 - d1 ) <= ${ DIST_THRESHOLD } ) {
+					if ( abs( t0 - t1 ) <= ${ DIST_THRESHOLD } ) {
 
 						return;
 
@@ -223,8 +223,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					if ( slot < arrayLength( &${ overlapsStorage } ) ) {
 
 						${ overlapsStorage }[ slot ].edgeIndex = edgeIndex;
-						${ overlapsStorage }[ slot ].t0 = d0;
-						${ overlapsStorage }[ slot ].t1 = d1;
+						${ overlapsStorage }[ slot ].t0 = t0;
+						${ overlapsStorage }[ slot ].t1 = t1;
 
 					}
 
