@@ -352,12 +352,16 @@ export const isLineTriangleEdge = wgslTagFn/* wgsl */`
 
 		let triPts = array<vec3f, 3>( tri.a, tri.b, tri.c );
 		var startMatches = false;
-		var endMatches   = false;
-		for ( var i = 0u; i < 3u; i = i + 1u ) {
+		var endMatches = false;
 
+		let start = line.start;
+		let end = line.end;
+		for ( var i = 0u; i < 3u; i ++ ) {
+
+			// dot is sq length
 			let tp = triPts[ i ];
-			let ds = line.start - tp;
-			let de = line.end - tp;
+			let ds = start - tp;
+			let de = end - tp;
 			if ( ! startMatches && dot( ds, ds ) <= ${ VERTEX_EPSILON } ) {
 
 				startMatches = true;
