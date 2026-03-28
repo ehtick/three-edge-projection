@@ -297,12 +297,10 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		`;
 
 		const transformShapeFn = wgslTagFn/* wgsl */`
-			fn transformShape( shape: ${ edgeLineShapeStruct }, inverseMatrix: mat4x4f, objectIndex: u32 ) -> ${ edgeLineShapeStruct } {
+			fn transformShape( localShape: ptr<function, ${ edgeLineShapeStruct }>, objectIndex: u32 ) -> void {
 
-				var localShape = shape;
 				localShape.matrixWorld = ${ storage.transforms }[ objectIndex ].matrixWorld;
 				localShape.objectIndex = objectIndex;
-				return localShape;
 
 			}
 		`;

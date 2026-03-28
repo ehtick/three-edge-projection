@@ -394,7 +394,8 @@ export class BVHComputeData {
 						}
 
 						// Transform shape into object local space
-						let localShape = ${ transformShapeFn }( shape, transform.inverseMatrixWorld, t );
+						var localShape = shape;
+						${ transformShapeFn }( &localShape, t );
 						let blasHit = ${ blasFn( { shape: 'localShape', rootNodeIndex: 'transform.nodeOffset', bestDist: 'bestHit.dist' } ) };
 						if ( blasHit.didHit && blasHit.dist < bestHit.dist ) {
 
@@ -836,7 +837,9 @@ export class BVHComputeData {
 			transformShapeFn: wgslTagFn/* wgsl */`
 				${ [ scratchRayScalar ] }
 
-				fn transformRay( ray: ${ rayStruct }, toLocal: mat4x4f, objectIndex: u32 ) -> ${ rayStruct } {
+				fn transformRay( ray: ptr<function, ${ rayStruct }>, objectIndex: u32 ) -> void {
+
+					let toLocal = ${ storage.transforms }[ objectIndex ].inverseMatrixWorld;
 
 					var localRay: Ray;
 					localRay.origin = ( toLocal * vec4f( ray.origin, 1.0 ) ).xyz;
@@ -845,8 +848,6 @@ export class BVHComputeData {
 					let len = length( localRay.direction );
 					localRay.direction /= len;
 					${ prefix }rayScalar = 1.0 / len;
-
-					return localRay;
 
 				}
 			`,
