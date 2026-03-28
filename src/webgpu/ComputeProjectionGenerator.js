@@ -111,12 +111,6 @@ export class ComputeProjectionGenerator {
 			pairCountsStorage: storage( triEdgePairsSizeAttribute, 'uint' ).setName( 'triEdgesSize' ).toAtomic(),
 			overflowFlagStorage: storage( overflowFlagAttribute, 'uint' ).setName( 'overflowFlag' ).toAtomic(),
 		} );
-		bvhComputeData.fns.collectTriEdgeOverlaps = bvhComputeData.getTriangleEdgeOverlapsFn( {
-			edgesStorage: storage( edgeBufferAttribute, edgeStruct ).setName( 'edges' ),
-			overlapsStorage: storage( overlapsAttribute, overlapRecordStruct ).setName( 'overlaps' ),
-			overlapsCountStorage: storage( overlapsSizeAttribute, 'uint' ).setName( 'overlapsCount' ).toAtomic(),
-		} );
-
 		// initialize kernels
 		const edgePairsKernel = new EdgePairsKernel();
 		edgePairsKernel.edges = edgeBufferAttribute;
@@ -126,6 +120,9 @@ export class ComputeProjectionGenerator {
 		edgeOverlapsKernel.pairs = triEdgePairsAttribute;
 		edgeOverlapsKernel.pairsSize = triEdgePairsSizeAttribute;
 		edgeOverlapsKernel.bvhData = bvhComputeData;
+		edgeOverlapsKernel.edges = edgeBufferAttribute;
+		edgeOverlapsKernel.overlaps = overlapsAttribute;
+		edgeOverlapsKernel.overlapsSize = overlapsSizeAttribute;
 
 		//
 
