@@ -236,7 +236,7 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 		// cutting plane: orthogonal to the edge direction in XZ, passing through ls
 		let normal = ${ TriWGSL.getNormal }( _tri );
 		let orthoNormal = normalize( cross( dir, normal ) );
-		var orthoPlane = ${ PlaneWGSL.fromNormalAndCoplanarPoint }( orthoNormal, _line.start );
+		let orthoPlane = ${ PlaneWGSL.fromNormalAndCoplanarPoint }( orthoNormal, _line.start );
 
 		// find the two intersections of triangle edges with the cutting plane
 		var intersectCount = 0u;
@@ -250,8 +250,8 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 			let p2 = triPts[ ( i + 1u ) % 3u ];
 
 			// TODO: this is inconsistent
-			let distToStart = dot( orthoPlane.normal, p1 ) + orthoPlane.constant;
-			let distToEnd = dot( orthoPlane.normal, p2 ) + orthoPlane.constant;
+			let distToStart = ${ PlaneWGSL.distanceToPoint }( orthoPlane, p1 );
+			let distToEnd = ${ PlaneWGSL.distanceToPoint }( orthoPlane, p2 );
 
 			let startIntersects = abs( distToStart ) < ${ DIST_THRESHOLD };
 			let endIntersects = abs( distToEnd ) < ${ DIST_THRESHOLD };
