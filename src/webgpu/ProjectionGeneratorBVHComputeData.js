@@ -115,20 +115,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		return wgslTagFn/* wgsl */`
 			fn computeTriangleEdgeOverlap( edgeIndex: u32, objectIndex: u32, triIndex: u32 ) -> void {
 
+				// tri
 				var tri: ${ TriWGSL.struct };
-				var line: ${ LineWGSL.struct };
-
-				line.start = vec3f(
-					${ edgesStorage }[ edgeIndex ].start[ 0 ],
-					${ edgesStorage }[ edgeIndex ].start[ 1 ],
-					${ edgesStorage }[ edgeIndex ].start[ 2 ]
-				);
-				line.end = vec3f(
-					${ edgesStorage }[ edgeIndex ].end[ 0 ],
-					${ edgesStorage }[ edgeIndex ].end[ 1 ],
-					${ edgesStorage }[ edgeIndex ].end[ 2 ]
-				);
-
 				let i0 = ${ storage.index }[ triIndex * 3u + 0u ];
 				let i1 = ${ storage.index }[ triIndex * 3u + 1u ];
 				let i2 = ${ storage.index }[ triIndex * 3u + 2u ];
@@ -155,6 +143,19 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				let triMaxY = max( max( tri.a.y, tri.b.y ), tri.c.y );
 				let triMinY = min( min( tri.a.y, tri.b.y ), tri.c.y );
+
+				// line
+				var line: ${ LineWGSL.struct };
+				line.start = vec3f(
+					${ edgesStorage }[ edgeIndex ].start[ 0 ],
+					${ edgesStorage }[ edgeIndex ].start[ 1 ],
+					${ edgesStorage }[ edgeIndex ].start[ 2 ]
+				);
+				line.end = vec3f(
+					${ edgesStorage }[ edgeIndex ].end[ 0 ],
+					${ edgesStorage }[ edgeIndex ].end[ 1 ],
+					${ edgesStorage }[ edgeIndex ].end[ 2 ]
+				);
 
 				let lineMinY = min( line.start.y, line.end.y );
 				let lineMaxY = max( line.start.y, line.end.y );
@@ -198,10 +199,12 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				var overlapLine: ${ LineWGSL.struct };
 				if ( ${ getProjectedOverlapRange }( beneathLine, tri, &overlapLine ) ) {
 
+					// overlap line end points relative to "start"
 					let dir = line.end - line.start;
 					let v0 = overlapLine.start - line.start;
 					let v1 = overlapLine.end - line.start;
 
+					// get the [0, 1] t values
 					let l = length( dir );
 					var d0 = length( v0 ) / l;
 					var d1 = length( v1 ) / l;
