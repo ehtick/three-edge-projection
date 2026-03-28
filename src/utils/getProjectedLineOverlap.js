@@ -51,43 +51,48 @@ export function getProjectedLineOverlap( line, triangle, lineTarget = new Line3(
 
 		const distToStart = _orthoPlane.distanceToPoint( p1 );
 		const distToEnd = _orthoPlane.distanceToPoint( p2 );
+
 		const startIntersects = Math.abs( distToStart ) < DIST_EPSILON;
 		const endIntersects = Math.abs( distToEnd ) < DIST_EPSILON;
 
-		let edgeIntersects = false;
-		if ( ! startIntersects && ! endIntersects && distToStart * distToEnd < 0 ) {
+		if ( startIntersects && endIntersects ) {
+
+			continue;
+
+		} else if ( startIntersects ) {
+
+			_point.copy( p1 );
+
+		} else if ( endIntersects ) {
+
+			continue;
+
+		} else if ( ( distToStart < 0.0 ) == ( distToEnd < 0.0 ) ) {
+
+			continue;
+
+		} else {
 
 			// manual edge-plane intersection (faster than Plane.intersectLine)
 			const t = distToStart / ( distToStart - distToEnd );
 			_point.lerpVectors( p1, p2, t );
-			edgeIntersects = true;
 
 		}
 
-		if ( ( edgeIntersects && ! endIntersects ) || startIntersects ) {
+		if ( intersectCount == 0 ) {
 
-			if ( startIntersects && ! edgeIntersects ) {
+			_triLine.start.copy( _point );
 
-				_point.copy( p1 );
+		} else if ( intersectCount == 1 ) {
 
-			}
+			_triLine.end.copy( _point );
 
-			if ( intersectCount === 0 ) {
+		}
 
-				_triLine.start.copy( _point );
+		intersectCount ++;
+		if ( intersectCount === 2 ) {
 
-			} else {
-
-				_triLine.end.copy( _point );
-
-			}
-
-			intersectCount ++;
-			if ( intersectCount === 2 ) {
-
-				break;
-
-			}
+			break;
 
 		}
 

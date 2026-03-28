@@ -257,17 +257,13 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 
 			// check of the edge intersects
 			var point = vec3f( 0.0 );
-			var edgeIntersects = false;
-			if ( startIntersects ) {
+			if ( startIntersects && endIntersects ) {
 
-				// NOTE: contrasting with the CPU implementation, this function does not consider endpoints lying on
-				// the edge plane to be "intersecting". Removing "continue" here and using the point yields missing
-				// edge artifacts, possibly due to floating point error and epsilons that are not applied appropriately.
-				// This may cause issues elsewhere when an endpoint is lying on the plane but this is yielding better
-				// results for the test data.
-
-				// point = p1;
 				continue;
+
+			} else if ( startIntersects ) {
+
+				point = p1;
 
 			} else if ( endIntersects ) {
 
