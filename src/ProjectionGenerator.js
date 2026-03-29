@@ -29,19 +29,34 @@ const _point1 = /* @__PURE__ */ new Vector3();
 const _dir0 = /* @__PURE__ */ new Vector3();
 const _dir1 = /* @__PURE__ */ new Vector3();
 
-function toLineGeometry( edges ) {
+function toLineGeometry( edges, ranges = null ) {
 
-	const edgeArray = new Float32Array( edges.length * 6 );
+	// if no ranges provided, treat the whole array as one range
+	const activeRanges = ranges ?? [ { start: 0, count: edges.length } ];
+
+	let totalCount = 0;
+	for ( let i = 0; i < activeRanges.length; i ++ ) {
+
+		totalCount += activeRanges[ i ].count;
+
+	}
+
+	const edgeArray = new Float32Array( totalCount * 6 );
 	let c = 0;
-	for ( let i = 0, l = edges.length; i < l; i ++ ) {
+	for ( let r = 0; r < activeRanges.length; r ++ ) {
 
-		const line = edges[ i ];
-		edgeArray[ c ++ ] = line[ 0 ];
-		edgeArray[ c ++ ] = 0;
-		edgeArray[ c ++ ] = line[ 2 ];
-		edgeArray[ c ++ ] = line[ 3 ];
-		edgeArray[ c ++ ] = 0;
-		edgeArray[ c ++ ] = line[ 5 ];
+		const { start, count } = activeRanges[ r ];
+		for ( let i = start, l = start + count; i < l; i ++ ) {
+
+			const line = edges[ i ];
+			edgeArray[ c ++ ] = line[ 0 ];
+			edgeArray[ c ++ ] = 0;
+			edgeArray[ c ++ ] = line[ 2 ];
+			edgeArray[ c ++ ] = line[ 3 ];
+			edgeArray[ c ++ ] = 0;
+			edgeArray[ c ++ ] = line[ 5 ];
+
+		}
 
 	}
 
@@ -63,15 +78,37 @@ export class ProjectionResult {
 
 	}
 
-	getVisibleLineGeometry() {
+	getVisibleLineGeometry( meshes = null ) {
 
-		return toLineGeometry( this.visibleEdges );
+		if ( meshes === null ) {
+
+			return toLineGeometry( this.visibleEdges );
+
+		} else {
+
+			const ranges = meshes
+				.map( m => this.visibleMeshToRange.get( m ) )
+				.filter( r => ! ! r );
+			return toLineGeometry( this.visibleEdges, ranges );
+
+		}
 
 	}
 
-	getHiddenLineGeometry() {
+	getHiddenLineGeometry( meshes = null ) {
 
-		return toLineGeometry( this.hiddenEdges );
+		if ( meshes === null ) {
+
+			return toLineGeometry( this.hiddenEdges );
+
+		} else {
+
+			const ranges = meshes
+				.map( m => this.hiddenMeshToRange.get( m ) )
+				.filter( r => ! ! r );
+			return toLineGeometry( this.hiddenEdges, ranges );
+
+		}
 
 	}
 
