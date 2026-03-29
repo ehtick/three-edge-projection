@@ -128,17 +128,9 @@ class ProjectedEdgeCollector {
 
 		this.meshes = getAllMeshes( scene );
 		this.bvhs = new Map();
-		this.visibleEdges = new EdgeSet();
-		this.hiddenEdges = new EdgeSet();
+		this.result = new ProjectionResult();
 		this.iterationTime = 30;
 		this.lineIntersectionStrategy = false;
-
-	}
-
-	reset() {
-
-		this.visibleEdges.segments.length = 0;
-		this.hiddenEdges.segments.length = 0;
 
 	}
 
@@ -158,8 +150,8 @@ class ProjectedEdgeCollector {
 	*addEdgesGenerator( edges, options = {} ) {
 
 		const { meshes, bvhs, iterationTime } = this;
-		const visibleEdges = this.visibleEdges.segments;
-		const hiddenEdges = this.hiddenEdges.segments;
+		const visibleEdges = this.result.visibleEdges.segments;
+		const hiddenEdges = this.result.hiddenEdges.segments;
 		let time = performance.now();
 		for ( let i = 0; i < meshes.length; i ++ ) {
 
@@ -322,6 +314,9 @@ class ProjectedEdgeCollector {
 			}
 
 			// construct the projections
+			let visibleStart = visibleEdges.length;
+			let hiddenStart = hiddenEdges.length;
+			const { result } = this;
 			for ( let i = 0; i < edges.length; i ++ ) {
 
 				if ( performance.now() - time > iterationTime ) {
@@ -333,9 +328,23 @@ class ProjectedEdgeCollector {
 
 				// convert the overlap points to proper lines
 				const line = edges[ i ];
+				const mesh = line.mesh;
 				const hiddenOverlaps = hiddenOverlapMap[ i ];
-				overlapsToLines( line, hiddenOverlaps, false, visibleEdges );
-				overlapsToLines( line, hiddenOverlaps, true, hiddenEdges );
+
+				if ( ! result.visibleEdges.meshToRange.has( mesh ) ) {
+
+					result.visibleEdges.meshToRange.set( mesh, { start: visibleStart, count: 0 } );
+					result.hiddenEdges.meshToRange.set( mesh, { start: hiddenStart, count: 0 } );
+
+				}
+
+				const newVisibleCount = overlapsToLines( line, hiddenOverlaps, false, visibleEdges );
+				const newHiddenCount = overlapsToLines( line, hiddenOverlaps, true, hiddenEdges );
+
+				result.visibleEdges.meshToRange.get( mesh ).count += newVisibleCount;
+				result.hiddenEdges.meshToRange.get( mesh ).count += newHiddenCount;
+				visibleStart += newVisibleCount;
+				hiddenStart += newHiddenCount;
 
 			}
 
@@ -420,6 +429,22 @@ export class ProjectionGenerator {
 		onProgress( 'Filtering edges' );
 		edges = edges.filter( e => ! isYProjectedLineDegenerate( e ) );
 
+		edges.sort( ( a, b ) => {
+
+			const uuidA = a.mesh.uuid;
+			const uuidB = b.mesh.uuid;
+			if ( uuidA === uuidB ) {
+
+				return 0;
+
+			} else {
+
+				return uuidA < uuidB ? - 1 : 1;
+
+			}
+
+		} );
+
 		yield;
 
 		const collector = new ProjectedEdgeCollector( scene );
@@ -429,12 +454,12 @@ export class ProjectionGenerator {
 		yield* collector.addEdgesGenerator( edges, {
 			onProgress: ! onProgress ? null : ( prog, tot ) => {
 
-				onProgress( 'Clipping edges', prog / tot, collector );
+				onProgress( 'Clipping edges', prog / tot, collector.result );
 
 			},
 		} );
 
-		return collector;
+		return collector.result;
 
 	}
 
