@@ -15,12 +15,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { MeshBVH, SAH } from 'three-mesh-bvh';
-import { ComputeProjectionGenerator } from 'three-edge-projection/webgpu';
+import { ComputeProjectionGenerator, MeshVisibilityCuller } from 'three-edge-projection/webgpu';
 
 const params = {
 	displayModel: true,
 	displayDrawThroughProjection: false,
 	includeIntersectionEdges: false,
+	visibilityCullMeshes: false,
 	regenerate: () => {
 
 		updateEdges();
@@ -77,11 +78,15 @@ async function init() {
 
 	// load model
 	group = new Group();
+	window.GROUP = group;
+	group.rotation.set( 0.3, 0, 0.3 );
+	group.updateMatrixWorld();
 	scene.add( group );
 
 	const gltf = await new GLTFLoader()
 		.setMeshoptDecoder( MeshoptDecoder )
-		.loadAsync( 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/nasa-m2020/Perseverance.glb' );
+		// .loadAsync( 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/nasa-m2020/Perseverance.glb' );
+		.loadAsync( new URL( './simple.glb', import.meta.url ).toString() );
 	model = gltf.scene;
 
 	// initialize BVHs
@@ -121,8 +126,8 @@ async function init() {
 	scene.add( projection, drawThroughProjection );
 
 	// camera setup
-	camera = new PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.01, 1e3 );
-	camera.position.setScalar( 3.5 );
+	camera = new PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.01, 1e6 );
+	camera.position.setScalar( 100.5 );
 	camera.updateProjectionMatrix();
 
 	needsRender = true;
@@ -139,6 +144,7 @@ async function init() {
 	gui.add( params, 'displayModel' ).onChange( () => needsRender = true );
 	gui.add( params, 'displayDrawThroughProjection' ).onChange( () => needsRender = true );
 	gui.add( params, 'includeIntersectionEdges' );
+	gui.add( params, 'visibilityCullMeshes' );
 	gui.add( params, 'rotate' );
 	gui.add( params, 'regenerate' );
 
@@ -177,7 +183,14 @@ async function updateEdges() {
 	const generator = new ComputeProjectionGenerator( renderer );
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;
 
-	const result = await generator.generate( group, {
+	let input = [ model ];
+	if ( params.visibilityCullMeshes ) {
+
+		input = await new MeshVisibilityCuller( renderer, { pixelsPerMeter: 0.1 } ).cull( input );
+
+	}
+
+	const result = await generator.generate( input, {
 		onProgress: p => {
 
 			outputContainer.innerText = `Generating... ${ ( p * 100 ).toFixed( 2 ) }%`;
