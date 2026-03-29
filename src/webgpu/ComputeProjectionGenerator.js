@@ -8,6 +8,7 @@ import { edgeStruct, triEdgePairStruct, overlapRecordStruct } from './nodes/stru
 import { EdgePairsKernel } from './kernels/EdgePairsKernel.js';
 import { EdgeOverlapsKernel } from './kernels/EdgeOverlapsKernel.js';
 import { overlapsToLines } from '../utils/overlapUtils.js';
+import { insertOverlap } from '../utils/getProjectedOverlaps.js';
 import { ProjectionResult } from '../ProjectionGenerator.js';
 import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 
@@ -189,7 +190,7 @@ export class ComputeProjectionGenerator {
 
 					}
 
-					intervalsByEdge.get( ei ).push( [ t0, t1 ] );
+					insertOverlap( [ t0, t1 ], intervalsByEdge.get( ei ) );
 
 				}
 
@@ -197,31 +198,14 @@ export class ComputeProjectionGenerator {
 
 		}
 
-		// sort, merge, and convert each edge's hidden intervals to visible/hidden line segments.
+		// convert each edge's hidden intervals to visible/hidden line segments.
 		// edges absent from intervalsByEdge had no occluding triangles and are fully visible.
 		const collector = new ProjectionResult();
 		for ( let i = 0; i < edges.length; i ++ ) {
 
-			const edgeIndex = i;
-			const intervals = intervalsByEdge.get( edgeIndex ) || [];
-			intervals.sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
-			const merged = [];
-			for ( const [ t0, t1 ] of intervals ) {
-
-				if ( merged.length === 0 || t0 > merged[ merged.length - 1 ][ 1 ] ) {
-
-					merged.push( [ t0, t1 ] );
-
-				} else {
-
-					merged[ merged.length - 1 ][ 1 ] = Math.max( merged[ merged.length - 1 ][ 1 ], t1 );
-
-				}
-
-			}
-
-			overlapsToLines( edges[ edgeIndex ], merged, false, collector.visibleEdges );
-			overlapsToLines( edges[ edgeIndex ], merged, true, collector.hiddenEdges );
+			const intervals = intervalsByEdge.get( i ) || [];
+			overlapsToLines( edges[ i ], intervals, false, collector.visibleEdges );
+			overlapsToLines( edges[ i ], intervals, true, collector.hiddenEdges );
 
 		}
 
