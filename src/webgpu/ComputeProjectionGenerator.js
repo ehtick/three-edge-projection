@@ -33,7 +33,7 @@ export class ComputeProjectionGenerator {
 		this.angleThreshold = 50;
 		this.includeIntersectionEdges = true;
 		this.clipY = null;
-		this.edgeBatchCapacity = 100000;
+		this.edgeBatchCapacity = 500000;
 
 	}
 
@@ -83,20 +83,6 @@ export class ComputeProjectionGenerator {
 		const triEdgePairsSizeStorage = storage( triEdgePairsSizeAttribute, 'uint' ).toAtomic();
 		const overflowFlagStorage = storage( overflowFlagAttribute, 'uint' ).setName( 'overflowFlag' ).toAtomic();
 
-		// fill out the edges array
-		const edgeStructStride = edgeStruct.getLength();
-		for ( let i = 0; i < batchCapacity; i ++ ) {
-
-			const { start, end } = edges[ i ];
-			const offset = i * edgeStructStride;
-			start.toArray( edgeBufferData, offset );
-			end.toArray( edgeBufferData, offset + 3 );
-			edgeBufferDataU32[ offset + 6 ] = i;
-
-		}
-
-		edgeBufferAttribute.needsUpdate = true;
-
 		//
 
 		// set up scene data
@@ -126,10 +112,28 @@ export class ComputeProjectionGenerator {
 		zeroOutKernel.setWorkgroupSize( 1, 1, 1 );
 
 		//
+		const intervalsByEdge = new Map();
+
+		const iterationCount = batchCapacity;
+
+		// fill out the edges array
+		const edgeStructStride = edgeStruct.getLength();
+		for ( let i = 0; i < iterationCount; i ++ ) {
+
+			const edgeIndex = i;
+			const { start, end } = edges[ edgeIndex ];
+			const offset = i * edgeStructStride;
+			start.toArray( edgeBufferData, offset );
+			end.toArray( edgeBufferData, offset + 3 );
+			edgeBufferDataU32[ offset + 6 ] = edgeIndex;
+
+		}
+
+		edgeBufferAttribute.needsUpdate = true;
 
 		// accumulate potential triangle-edge overlap pairs
-		edgePairsKernel.edgesToProcess = batchCapacity;
-		renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchCapacity ) );
+		edgePairsKernel.edgesToProcess = iterationCount;
+		renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( iterationCount ) );
 
 		// clear both the overlaps pointer, and pairs pointer
 		renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
@@ -138,7 +142,6 @@ export class ComputeProjectionGenerator {
 		const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
 		const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
 
-		const intervalsByEdge = new Map();
 		const dispatchSize = edgeOverlapsKernel.getDispatchSize( pairCount )[ 0 ];
 		const stepSize = Math.min( dispatchSize, 65535 );
 
@@ -185,7 +188,7 @@ export class ComputeProjectionGenerator {
 		// sort, merge, and convert each edge's hidden intervals to visible/hidden line segments.
 		// edges absent from intervalsByEdge had no occluding triangles and are fully visible.
 		const collector = new ProjectionResult();
-		for ( let i = 0; i < batchCapacity; i ++ ) {
+		for ( let i = 0; i < edges.length; i ++ ) {
 
 			const edgeIndex = i;
 			const intervals = intervalsByEdge.get( edgeIndex ) || [];
