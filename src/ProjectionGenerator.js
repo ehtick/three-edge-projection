@@ -58,6 +58,8 @@ export class ProjectionResult {
 
 		this.visibleEdges = [];
 		this.hiddenEdges = [];
+		this.visibleMeshToRange = new WeakMap();
+		this.hiddenMeshToRange = new WeakMap();
 
 	}
 

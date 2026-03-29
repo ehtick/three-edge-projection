@@ -19,7 +19,6 @@ import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 
 // TODO: Consider storing the ranges with multiple edges clipped per thread to reduce the array size needed
 
-// TODO: expose method for gathering edges per mesh
 
 const OVERLAPS_PER_EDGE = 100;
 export class ComputeProjectionGenerator {
@@ -60,6 +59,23 @@ export class ComputeProjectionGenerator {
 		}
 
 		edges = edges.filter( e => ! isYProjectedLineDegenerate( e ) );
+
+		edges.sort( ( a, b ) => {
+
+			const uuidA = a.mesh.uuid;
+			const uuidB = b.mesh.uuid;
+			if ( uuidA === uuidB ) {
+
+				return 0;
+
+			} else {
+
+				return uuidA < uuidB ? - 1 : 1;
+
+			}
+
+		} );
+
 		if ( edges.length === 0 ) {
 
 			return new ProjectionResult();
@@ -208,14 +224,36 @@ export class ComputeProjectionGenerator {
 
 		}
 
-		// convert each edge's hidden intervals to visible/hidden line segments.
-		// edges absent from intervalsByEdge had no occluding triangles and are fully visible.
 		const collector = new ProjectionResult();
+		let visibleStart = 0;
+		let hiddenStart = 0;
 		for ( let i = 0; i < edges.length; i ++ ) {
 
+			// save the ranges for the edges associated with each mesh
+			const mesh = edges[ i ].mesh;
+			if ( ! collector.visibleMeshToRange.has( mesh ) ) {
+
+				collector.visibleMeshToRange.set( mesh, {
+					start: visibleStart,
+					count: 0,
+				} );
+
+				collector.hiddenMeshToRange.set( mesh, {
+					start: hiddenStart,
+					count: 0,
+				} );
+
+			}
+
 			const intervals = intervalsByEdge.get( i ) || [];
-			overlapsToLines( edges[ i ], intervals, false, collector.visibleEdges );
-			overlapsToLines( edges[ i ], intervals, true, collector.hiddenEdges );
+			const newVisibleCount = overlapsToLines( edges[ i ], intervals, false, collector.visibleEdges );
+			const newHiddenCount = overlapsToLines( edges[ i ], intervals, true, collector.hiddenEdges );
+
+			collector.visibleMeshToRange.get( mesh ).count += newVisibleCount;
+			collector.hiddenMeshToRange.get( mesh ).count += newHiddenCount;
+
+			visibleStart += newVisibleCount;
+			hiddenStart += newHiddenCount;
 
 		}
 

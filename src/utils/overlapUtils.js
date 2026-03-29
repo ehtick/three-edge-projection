@@ -40,6 +40,6 @@ export function overlapsToLines( line, overlaps, invert = false, target = [] ) {
 
 	}
 
-	return target;
+	return invOverlaps.length;
 
 }
