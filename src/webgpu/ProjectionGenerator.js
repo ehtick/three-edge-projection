@@ -28,13 +28,12 @@ export class ProjectionGenerator {
 		this.angleThreshold = 50;
 		this.batchSize = 50000;
 		this.includeIntersectionEdges = true;
-		this.clipY = null;
 
 	}
 
 	async generate( scene, options = {} ) {
 
-		const { renderer, angleThreshold, includeIntersectionEdges, clipY, batchSize } = this;
+		const { renderer, angleThreshold, includeIntersectionEdges, batchSize } = this;
 		const { onProgress = null } = options;
 
 		// collect meshes
@@ -43,7 +42,6 @@ export class ProjectionGenerator {
 		// generate edges
 		const edgeGenerator = new EdgeGenerator();
 		edgeGenerator.thresholdAngle = angleThreshold;
-		edgeGenerator.clipY = clipY;
 
 		// adjust the offset to account for floating point error in the edge processing and intersections.
 		// NOTE: Ideally we should be applying this relative to the scale of the values being used rather that

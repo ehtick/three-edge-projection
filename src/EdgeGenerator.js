@@ -21,7 +21,6 @@ export class EdgeGenerator {
 		this.thresholdAngle = 50;
 		this.iterationTime = 30;
 		this.yOffset = 1e-6;
-		this.clipY = null;
 
 	}
 
@@ -33,12 +32,6 @@ export class EdgeGenerator {
 
 		const result = this.getEdgesGenerator( ...args ).next().value;
 		this.iterationTime = currIterationTime;
-
-		if ( this.clipY !== null ) {
-
-			clipEdges( result, this.clipY );
-
-		}
 
 		return result;
 
@@ -131,12 +124,6 @@ export class EdgeGenerator {
 
 		const result = this.getIntersectionEdgesGenerator( ...args ).next().value;
 		this.iterationTime = currIterationTime;
-
-		if ( this.clipY !== null ) {
-
-			clipEdges( result, this.clipY );
-
-		}
 
 		return result;
 
