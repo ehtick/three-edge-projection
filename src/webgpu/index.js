@@ -1,2 +1,2 @@
-export * from './ComputeProjectionGenerator.js';
+export * from './ProjectionGenerator.js';
 export * from './MeshVisibilityCuller.js';

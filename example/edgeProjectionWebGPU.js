@@ -15,7 +15,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { MeshBVH, SAH } from 'three-mesh-bvh';
-import { ComputeProjectionGenerator, MeshVisibilityCuller } from 'three-edge-projection/webgpu';
+import { ProjectionGenerator, MeshVisibilityCuller } from 'three-edge-projection/webgpu';
 
 const params = {
 	displayModel: true,
@@ -180,7 +180,7 @@ async function updateEdges() {
 	needsRender = true;
 
 	const timeStart = window.performance.now();
-	const generator = new ComputeProjectionGenerator( renderer );
+	const generator = new ProjectionGenerator( renderer );
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;
 
 	let input = [ model ];
