@@ -315,14 +315,14 @@ export class BVHComputeData {
 		let transformResultSnippet = '';
 		if ( transformResultFn ) {
 
-			transformResultSnippet = wgslTagCode/* wgsl */`${ transformResultFn }( &bestHit, t );`;
+			transformResultSnippet = wgslTagCode/* wgsl */`${ transformResultFn }( &bestHit, i );`;
 
 		}
 
 		let transformShapeSnippet = '';
 		if ( transformShapeFn ) {
 
-			transformShapeSnippet = wgslTagCode/* wgsl */`${ transformShapeFn }( &localShape, t );`;
+			transformShapeSnippet = wgslTagCode/* wgsl */`${ transformShapeFn }( &localShape, i );`;
 
 		}
 
@@ -384,8 +384,8 @@ export class BVHComputeData {
 						let splitAxis = infoX & 0x0000ffffu;
 						let rightIndex = nodeIndex + infoY;
 
-						let c1 = rightIndex;
-						let c2 = leftIndex;
+						var c1 = rightIndex;
+						var c2 = leftIndex;
 						${ leftToRightSnippet }
 
 						pointer = pointer + 1;
@@ -430,9 +430,9 @@ export class BVHComputeData {
 
 				${ getFnBody( wgslTagCode/* wgsl */`
 
-					for ( var t = offset; t < offset + count; t = t + 1u ) {
+					for ( var i = offset; i < offset + count; i ++ ) {
 
-						let transform = ${ storage.transforms }[ t ];
+						let transform = ${ storage.transforms }[ i ];
 						if ( transform.visible == 0u ) {
 
 							continue;
@@ -446,7 +446,7 @@ export class BVHComputeData {
 						if ( blasHit.didHit && blasHit.dist < bestHit.dist ) {
 
 							bestHit = blasHit;
-							bestHit.objectIndex = t;
+							bestHit.objectIndex = i;
 
 							${ transformResultSnippet }
 
@@ -886,13 +886,11 @@ export class BVHComputeData {
 				fn transformRay( ray: ptr<function, ${ rayStruct }>, objectIndex: u32 ) -> void {
 
 					let toLocal = ${ storage.transforms }[ objectIndex ].inverseMatrixWorld;
+					ray.origin = ( toLocal * vec4f( ray.origin, 1.0 ) ).xyz;
+					ray.direction = ( toLocal * vec4f( ray.direction, 0.0 ) ).xyz;
 
-					var localRay: Ray;
-					localRay.origin = ( toLocal * vec4f( ray.origin, 1.0 ) ).xyz;
-					localRay.direction = ( toLocal * vec4f( ray.direction, 0.0 ) ).xyz;
-
-					let len = length( localRay.direction );
-					localRay.direction /= len;
+					let len = length( ray.direction );
+					ray.direction /= len;
 					${ prefix }rayScalar = 1.0 / len;
 
 				}
