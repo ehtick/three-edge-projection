@@ -28,7 +28,7 @@ export class ComputeProjectionGenerator {
 
 		this.renderer = renderer;
 		this.angleThreshold = 50;
-		this.batchSize = 10000;
+		this.batchSize = 50000;
 		this.includeIntersectionEdges = true;
 		this.clipY = null;
 
@@ -45,6 +45,11 @@ export class ComputeProjectionGenerator {
 		const edgeGenerator = new EdgeGenerator();
 		edgeGenerator.thresholdAngle = angleThreshold;
 		edgeGenerator.clipY = clipY;
+
+		// adjust the offset to account for floating point error in the edge processing and intersections.
+		// NOTE: Ideally we should be applying this relative to the scale of the values being used rather that
+		// using a fixed offset.
+		edgeGenerator.yOffset = 5 * 1e-5;
 
 		let edges = [];
 		edgeGenerator.getEdges( scene, edges );
@@ -143,28 +148,24 @@ export class ComputeProjectionGenerator {
 			const overflow = new Uint32Array( await renderer.getArrayBufferAsync( overflowFlagAttribute ) );
 			if ( overflow > 0 ) {
 
-				e -= batchStep;
 				batchStep = Math.ceil( batchStep * 0.5 );
+				e -= batchStep;
 				continue;
-
-			} else if ( batchStep < batchCapacity ) {
-
-				batchStep *= 2.0;
 
 			}
 
-			// read back actual pair count before dispatching K3
+			// read back actual pair count before dispatching
 			const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsCountAttribute );
 			const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
 
 			const dispatchSize = edgeOverlapsKernel.getDispatchSize( pairCount )[ 0 ];
-			const stepSize = Math.min( dispatchSize, 65535 );
+			const dispatchStepSize = Math.min( dispatchSize, 65535 );
 
-			for ( let i = 0; i < dispatchSize; i += stepSize ) {
+			for ( let i = 0; i < dispatchSize; i += dispatchStepSize ) {
 
 				// generate all overlaps — dispatch only over valid pairs
 				renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
-				renderer.compute( edgeOverlapsKernel.kernel, [ stepSize, 1, 1 ] );
+				renderer.compute( edgeOverlapsKernel.kernel, [ dispatchStepSize, 1, 1 ] );
 
 				// read result data back
 				const [ overlaps, bufferPointers ] = await Promise.all( [
@@ -177,7 +178,7 @@ export class ComputeProjectionGenerator {
 				const bufferPointersU32 = new Uint32Array( bufferPointers );
 				const stride = overlapRecordStruct.getLength();
 
-				for ( let oi = 0; oi < bufferPointersU32[ 0 ]; oi ++ ) {
+				for ( let oi = 0, ol = bufferPointersU32[ 0 ]; oi < ol; oi ++ ) {
 
 					const index = oi * stride;
 					const ei = e + overlapsU32[ index + 0 ];
@@ -193,6 +194,15 @@ export class ComputeProjectionGenerator {
 					insertOverlap( [ t0, t1 ], intervalsByEdge.get( ei ) );
 
 				}
+
+			}
+
+			// try to grow the batch step towards the original stride
+			if ( batchStep < batchCapacity ) {
+
+				e += batchStep;
+				batchStep = Math.min( batchStep * 2.0, batchCapacity );
+				e -= batchStep;
 
 			}
 

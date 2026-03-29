@@ -20,6 +20,7 @@ export class EdgeGenerator {
 		this.projectionDirection = new Vector3( 0, 1, 0 );
 		this.thresholdAngle = 50;
 		this.iterationTime = 30;
+		this.yOffset = 1e-6;
 		this.clipY = null;
 
 	}
@@ -58,7 +59,7 @@ export class EdgeGenerator {
 
 		}
 
-		const { projectionDirection, thresholdAngle, iterationTime } = this;
+		const { projectionDirection, thresholdAngle, iterationTime, yOffset } = this;
 		if ( geometry.isObject3D ) {
 
 			const meshes = getAllMeshes( geometry );
@@ -95,7 +96,7 @@ export class EdgeGenerator {
 					iterationTime: iterationTime,
 				} );
 
-				transformEdges( results, mesh.matrixWorld );
+				transformEdges( results, mesh.matrixWorld, yOffset );
 
 				// push the edges individually to avoid stack overflow
 				for ( let i = 0; i < results.length; i ++ ) {
@@ -156,7 +157,7 @@ export class EdgeGenerator {
 
 		}
 
-		const { iterationTime } = this;
+		const { iterationTime, yOffset } = this;
 		if ( geometry.isObject3D ) {
 
 			// get the bounds trees from all geometry
@@ -208,7 +209,7 @@ export class EdgeGenerator {
 						.multiply( meshB.matrixWorld );
 
 					const results = generateIntersectionEdges( bvhA, bvhB, _BtoA, [], { iterationTime } );
-					transformEdges( results, meshA.matrixWorld );
+					transformEdges( results, meshA.matrixWorld, yOffset );
 
 					// push the edges individually to avoid stack overflow
 					for ( let i = 0; i < results.length; i ++ ) {
@@ -248,7 +249,7 @@ export class EdgeGenerator {
 }
 
 // add an offset to avoid precision errors when detecting intersections and clipping
-function transformEdges( list, matrix, offset = 1e-6 ) {
+function transformEdges( list, matrix, offset = 0 ) {
 
 	for ( let i = 0; i < list.length; i ++ ) {
 
