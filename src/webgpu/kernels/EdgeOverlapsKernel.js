@@ -160,7 +160,7 @@ export class EdgeOverlapsKernel extends ComputeKernel {
 
 				// pairsSize includes the total amount of pairs written to the
 				// original buffer
-				let pairIndex = globalId.x;
+				let pairIndex = atomicAdd( &${ params.overlapsSize }[ 1 ], 1u );
 				if ( pairIndex >= ${ params.pairsSize }[ 1 ] ) {
 
 					return;

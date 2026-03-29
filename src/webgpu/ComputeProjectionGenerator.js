@@ -9,6 +9,7 @@ import { EdgePairsKernel } from './kernels/EdgePairsKernel.js';
 import { EdgeOverlapsKernel } from './kernels/EdgeOverlapsKernel.js';
 import { overlapsToLines } from '../utils/overlapUtils.js';
 import { ProjectionResult } from '../ProjectionGenerator.js';
+import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 
 // TODO: edge splitting — long edges that span a large portion of the scene create heavy single-thread
 // work in kernel 2. splitting them into sub-edges at pack time distributes that work across more
@@ -119,6 +120,10 @@ export class ComputeProjectionGenerator {
 		edgeOverlapsKernel.overlaps = overlapsAttribute;
 		edgeOverlapsKernel.overlapsSize = overlapsSizeAttribute;
 
+		const zeroOutKernel = new ZeroOutBufferKernel();
+		zeroOutKernel.target = overlapsSizeAttribute;
+		zeroOutKernel.setWorkgroupSize( 1, 1, 1 );
+
 		//
 
 		// accumulate potential triangle-edge overlap pairs
@@ -128,38 +133,48 @@ export class ComputeProjectionGenerator {
 		const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
 		const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
 
-		// generate all overlaps — dispatch only over valid pairs
-		renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( pairCount ) );
-
-		//
-
-		// read result data back
-		const [ overlaps, overlapsSize ] = await Promise.all( [
-			renderer.getArrayBufferAsync( overlapsAttribute ),
-			renderer.getArrayBufferAsync( overlapsSizeAttribute ),
-		] );
-
-
-		const overlapsF32 = new Float32Array( overlaps );
-		const overlapsU32 = new Uint32Array( overlaps );
-		const overlapsSizeU32 = new Uint32Array( overlapsSize );
-		const stride = overlapRecordStruct.getLength();
 		const intervalsByEdge = new Map();
+		const dispatchSize = edgeOverlapsKernel.getDispatchSize( pairCount )[ 0 ];
+		const stepSize = Math.min( dispatchSize, 65535 );
+		for ( let i = 0; i < dispatchSize; i += stepSize ) {
 
-		for ( let i = 0; i < overlapsSizeU32[ 0 ]; i ++ ) {
+			// generate all overlaps — dispatch only over valid pairs
+			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
+			renderer.compute( edgeOverlapsKernel.kernel, [ stepSize, 1, 1 ] );
 
-			const index = i * stride;
-			const ei = overlapsU32[ index + 0 ];
-			const t0 = overlapsF32[ index + 1 ];
-			const t1 = overlapsF32[ index + 2 ];
+			console.log('STEPPED')
 
-			if ( ! intervalsByEdge.has( ei ) ) {
+			//
 
-				intervalsByEdge.set( ei, [] );
+			// read result data back
+			const [ overlaps, overlapsSize ] = await Promise.all( [
+				renderer.getArrayBufferAsync( overlapsAttribute ),
+				renderer.getArrayBufferAsync( overlapsSizeAttribute ),
+			] );
+
+			const overlapsF32 = new Float32Array( overlaps );
+			const overlapsU32 = new Uint32Array( overlaps );
+			const overlapsSizeU32 = new Uint32Array( overlapsSize );
+			const stride = overlapRecordStruct.getLength();
+
+			console.log( overlapsSizeU32[ 0 ] )
+
+			for ( let i = 0; i < overlapsSizeU32[ 0 ]; i ++ ) {
+
+				const index = i * stride;
+				const ei = overlapsU32[ index + 0 ];
+				const t0 = overlapsF32[ index + 1 ];
+				const t1 = overlapsF32[ index + 2 ];
+
+				if ( ! intervalsByEdge.has( ei ) ) {
+
+					intervalsByEdge.set( ei, [] );
+
+				}
+
+				intervalsByEdge.get( ei ).push( [ t0, t1 ] );
 
 			}
-
-			intervalsByEdge.get( ei ).push( [ t0, t1 ] );
 
 		}
 

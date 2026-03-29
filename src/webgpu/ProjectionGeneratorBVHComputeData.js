@@ -212,7 +212,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					tri.b = ( matrixWorld * vec4f( localB, 1.0 ) ).xyz;
 					tri.c = ( matrixWorld * vec4f( localC, 1.0 ) ).xyz;
 
-					// back-face cull based on per-object side (0=double, 1=front, -1=back)
+					// back-face cull
 					let triNormal = cross( tri.b - tri.a, tri.c - tri.a );
 					let side = ${ storage.transforms }[ shape.objectIndex ].side;
 					if ( side != ${ DOUBLE_SIDE } ) {
