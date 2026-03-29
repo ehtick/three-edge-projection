@@ -180,10 +180,10 @@ async function updateEdges() {
 	const result = await generator.generate( group );
 	projection.geometry.dispose();
 	projection.material.dispose();
-	projection.geometry = result.getVisibleLineGeometry();
+	projection.geometry = result.visibleEdges.getLineGeometry();
 
 	drawThroughProjection.geometry.dispose();
-	drawThroughProjection.geometry = result.getHiddenLineGeometry();
+	drawThroughProjection.geometry = result.hiddenEdges.getLineGeometry();
 
 	const elapsed = window.performance.now() - timeStart;
 	outputContainer.innerText = `Generation time: ${ elapsed.toFixed( 2 ) }ms`;

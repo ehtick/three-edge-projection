@@ -67,69 +67,36 @@ function toLineGeometry( edges, ranges = null ) {
 
 }
 
-export class ProjectionResult {
+class EdgeSet {
 
 	constructor() {
 
-		this.visibleEdges = [];
-		this.hiddenEdges = [];
-		this.visibleMeshToRange = new WeakMap();
-		this.hiddenMeshToRange = new WeakMap();
+		this.segments = [];
+		this.meshToRange = new WeakMap();
 
 	}
 
-	getVisibleLineGeometry( meshes = null ) {
+	getLineGeometry( meshes = null ) {
 
 		if ( meshes === null ) {
 
-			return toLineGeometry( this.visibleEdges );
+			return toLineGeometry( this.segments );
 
 		} else {
 
 			const ranges = meshes
-				.map( m => this.visibleMeshToRange.get( m ) )
+				.map( m => this.meshToRange.get( m ) )
 				.filter( r => ! ! r );
-			return toLineGeometry( this.visibleEdges, ranges );
+
+			return toLineGeometry( this.segments, ranges );
 
 		}
 
 	}
 
-	getHiddenLineGeometry( meshes = null ) {
+	getRangeForMesh( mesh ) {
 
-		if ( meshes === null ) {
-
-			return toLineGeometry( this.hiddenEdges );
-
-		} else {
-
-			const ranges = meshes
-				.map( m => this.hiddenMeshToRange.get( m ) )
-				.filter( r => ! ! r );
-			return toLineGeometry( this.hiddenEdges, ranges );
-
-		}
-
-	}
-
-	getVisibleRangeForMesh( mesh ) {
-
-		const range = this.visibleMeshToRange.get( mesh );
-		if ( ! range ) {
-
-			return null;
-
-		} else {
-
-			return { start: range.start * 2, count: range.count * 2 };
-
-		}
-
-	}
-
-	getHiddenRangeForMesh( mesh ) {
-
-		const range = this.hiddenMeshToRange.get( mesh );
+		const range = this.meshToRange.get( mesh );
 		if ( ! range ) {
 
 			return null;
@@ -144,14 +111,25 @@ export class ProjectionResult {
 
 }
 
+export class ProjectionResult {
+
+	constructor() {
+
+		this.visibleEdges = new EdgeSet();
+		this.hiddenEdges = new EdgeSet();
+
+	}
+
+}
+
 class ProjectedEdgeCollector {
 
 	constructor( scene ) {
 
 		this.meshes = getAllMeshes( scene );
 		this.bvhs = new Map();
-		this.visibleEdges = [];
-		this.hiddenEdges = [];
+		this.visibleEdges = new EdgeSet();
+		this.hiddenEdges = new EdgeSet();
 		this.iterationTime = 30;
 		this.lineIntersectionStrategy = false;
 
@@ -159,21 +137,8 @@ class ProjectedEdgeCollector {
 
 	reset() {
 
-		this.visibleEdges.length = 0;
-		this.hiddenEdges.length = 0;
-
-	}
-
-	getVisibleLineGeometry() {
-
-		return toLineGeometry( this.visibleEdges );
-
-	}
-
-	getHiddenLineGeometry() {
-
-		return toLineGeometry( this.hiddenEdges );
-
+		this.visibleEdges.segments.length = 0;
+		this.hiddenEdges.segments.length = 0;
 
 	}
 
@@ -192,7 +157,9 @@ class ProjectedEdgeCollector {
 	// all edges are expected to be in world coordinates
 	*addEdgesGenerator( edges, options = {} ) {
 
-		const { meshes, bvhs, visibleEdges, hiddenEdges, iterationTime } = this;
+		const { meshes, bvhs, iterationTime } = this;
+		const visibleEdges = this.visibleEdges.segments;
+		const hiddenEdges = this.hiddenEdges.segments;
 		let time = performance.now();
 		for ( let i = 0; i < meshes.length; i ++ ) {
 

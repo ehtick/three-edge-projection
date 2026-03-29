@@ -231,14 +231,14 @@ export class ComputeProjectionGenerator {
 
 			// save the ranges for the edges associated with each mesh
 			const mesh = edges[ i ].mesh;
-			if ( ! collector.visibleMeshToRange.has( mesh ) ) {
+			if ( ! collector.visibleEdges.meshToRange.has( mesh ) ) {
 
-				collector.visibleMeshToRange.set( mesh, {
+				collector.visibleEdges.meshToRange.set( mesh, {
 					start: visibleStart,
 					count: 0,
 				} );
 
-				collector.hiddenMeshToRange.set( mesh, {
+				collector.hiddenEdges.meshToRange.set( mesh, {
 					start: hiddenStart,
 					count: 0,
 				} );
@@ -246,11 +246,11 @@ export class ComputeProjectionGenerator {
 			}
 
 			const intervals = intervalsByEdge.get( i ) || [];
-			const newVisibleCount = overlapsToLines( edges[ i ], intervals, false, collector.visibleEdges );
-			const newHiddenCount = overlapsToLines( edges[ i ], intervals, true, collector.hiddenEdges );
+			const newVisibleCount = overlapsToLines( edges[ i ], intervals, false, collector.visibleEdges.segments );
+			const newHiddenCount = overlapsToLines( edges[ i ], intervals, true, collector.hiddenEdges.segments );
 
-			collector.visibleMeshToRange.get( mesh ).count += newVisibleCount;
-			collector.hiddenMeshToRange.get( mesh ).count += newHiddenCount;
+			collector.visibleEdges.meshToRange.get( mesh ).count += newVisibleCount;
+			collector.hiddenEdges.meshToRange.get( mesh ).count += newHiddenCount;
 
 			visibleStart += newVisibleCount;
 			hiddenStart += newHiddenCount;
