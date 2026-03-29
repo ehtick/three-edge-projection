@@ -48,7 +48,6 @@ export class EdgePairsKernel extends ComputeKernel {
 
 		super( shader( params ) );
 		this.defineUniformAccessors( params );
-		this.setWorkgroupSize( 64, 1, 1 );
 
 	}
 

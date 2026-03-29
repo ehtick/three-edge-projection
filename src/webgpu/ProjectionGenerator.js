@@ -20,6 +20,7 @@ import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 // TODO: Consider storing the ranges with multiple edges clipped per thread to reduce the array size needed
 
 const OVERLAPS_PER_EDGE = 100;
+const MAX_DISPATCH_SIZE = 65535;
 export class ProjectionGenerator {
 
 	constructor( renderer ) {
@@ -112,10 +113,12 @@ export class ProjectionGenerator {
 
 		// initialize kernels
 		const edgePairsKernel = new EdgePairsKernel();
+		edgePairsKernel.setWorkgroupSize( 64, 1, 1 );
 		edgePairsKernel.edges = edgeBufferAttribute;
 		edgePairsKernel.bvhData = bvhComputeData;
 
 		const edgeOverlapsKernel = new EdgeOverlapsKernel();
+		edgeOverlapsKernel.setWorkgroupSize( 64, 1, 1 );
 		edgeOverlapsKernel.pairs = triEdgePairsAttribute;
 		edgeOverlapsKernel.pairsCount = triEdgePairsCountAttribute;
 		edgeOverlapsKernel.bvhData = bvhComputeData;
@@ -150,8 +153,10 @@ export class ProjectionGenerator {
 			// clear the pairs counts & overlaps pointers
 			zeroOutKernel.target = triEdgePairsCountAttribute;
 			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+
 			zeroOutKernel.target = bufferPointersAttribute;
 			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+
 			zeroOutKernel.target = overflowFlagAttribute;
 			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
 
@@ -162,9 +167,17 @@ export class ProjectionGenerator {
 			const overflow = new Uint32Array( await renderer.getArrayBufferAsync( overflowFlagAttribute ) );
 			if ( overflow > 0 ) {
 
-				batchStep = Math.ceil( batchStep * 0.5 );
-				e -= batchStep;
-				continue;
+				if ( batchStep === 1 ) {
+
+					console.error( `ProjectionGenerator: Overlaps buffer insufficient size to store all segments. Please report to three-edge-projection.` );
+
+				} else {
+
+					batchStep = Math.ceil( batchStep * 0.5 );
+					e -= batchStep;
+					continue;
+
+				}
 
 			}
 
@@ -173,44 +186,44 @@ export class ProjectionGenerator {
 			const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
 
 			const dispatchSize = edgeOverlapsKernel.getDispatchSize( pairCount )[ 0 ];
-			const dispatchStepSize = Math.min( dispatchSize, 65535 );
+			const dispatchStepSize = Math.min( dispatchSize, MAX_DISPATCH_SIZE );
 
+			// run dispatches for all overlaps
 			for ( let i = 0; i < dispatchSize; i += dispatchStepSize ) {
 
-				// generate all overlaps — dispatch only over valid pairs
-				renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
 				renderer.compute( edgeOverlapsKernel.kernel, [ dispatchStepSize, 1, 1 ] );
-
-				// read result data back
-				const [ overlaps, bufferPointers ] = await Promise.all( [
-					renderer.getArrayBufferAsync( overlapsAttribute ),
-					renderer.getArrayBufferAsync( bufferPointersAttribute ),
-				] );
-
-				const overlapsF32 = new Float32Array( overlaps );
-				const overlapsU32 = new Uint32Array( overlaps );
-				const bufferPointersU32 = new Uint32Array( bufferPointers );
-				const stride = overlapRecordStruct.getLength();
-
-				for ( let oi = 0, ol = bufferPointersU32[ 0 ]; oi < ol; oi ++ ) {
-
-					const index = oi * stride;
-					const ei = e + overlapsU32[ index + 0 ];
-					const t0 = overlapsF32[ index + 1 ];
-					const t1 = overlapsF32[ index + 2 ];
-
-					if ( ! intervalsByEdge.has( ei ) ) {
-
-						intervalsByEdge.set( ei, [] );
-
-					}
-
-					insertOverlap( [ t0, t1 ], intervalsByEdge.get( ei ) );
-
-				}
 
 			}
 
+			// read result data back
+			const [ overlaps, bufferPointers ] = await Promise.all( [
+				renderer.getArrayBufferAsync( overlapsAttribute ),
+				renderer.getArrayBufferAsync( bufferPointersAttribute ),
+			] );
+
+			const overlapsF32 = new Float32Array( overlaps );
+			const overlapsU32 = new Uint32Array( overlaps );
+			const bufferPointersU32 = new Uint32Array( bufferPointers );
+			const stride = overlapRecordStruct.getLength();
+
+			for ( let oi = 0, ol = bufferPointersU32[ 0 ]; oi < ol; oi ++ ) {
+
+				const index = oi * stride;
+				const ei = e + overlapsU32[ index + 0 ];
+				const t0 = overlapsF32[ index + 1 ];
+				const t1 = overlapsF32[ index + 2 ];
+
+				if ( ! intervalsByEdge.has( ei ) ) {
+
+					intervalsByEdge.set( ei, [] );
+
+				}
+
+				insertOverlap( [ t0, t1 ], intervalsByEdge.get( ei ) );
+
+			}
+
+			// fire progress
 			if ( onProgress ) {
 
 				onProgress( ( e + iterationCount ) / edges.length );
