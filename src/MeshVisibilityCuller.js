@@ -78,8 +78,8 @@ export class MeshVisibilityCuller {
 
 		// set the camera bounds
 		camera.rotation.x = - Math.PI / 2;
-		camera.far = box.max.y - box.min.y;
-		camera.position.y = box.max.y;
+		camera.far = ( box.max.y - box.min.y ) + camera.near;
+		camera.position.y = box.max.y + camera.near;
 
 		// save render state
 		const color = renderer.getClearColor( new Color() );
@@ -91,17 +91,17 @@ export class MeshVisibilityCuller {
 		const readBuffer = new Uint8Array( target.width * target.height * 4 );
 		const visibleSet = new Set();
 		const stepX = size.x / tilesX;
-		const stepY = size.z / tilesY;
+		const stepZ = size.z / tilesY;
 		for ( let x = 0; x < tilesX; x ++ ) {
 
 			for ( let y = 0; y < tilesY; y ++ ) {
 
 				// update camera
 				camera.left = box.min.x + stepX * x;
-				camera.bottom = box.min.z + stepY * y;
+				camera.top = - ( box.min.z + stepZ * y );
 
 				camera.right = camera.left + stepX;
-				camera.top = camera.bottom + stepY;
+				camera.bottom = camera.top - stepZ;
 
 				camera.updateProjectionMatrix();
 
