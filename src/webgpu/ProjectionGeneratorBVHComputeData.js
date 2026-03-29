@@ -120,6 +120,9 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		const intersectsBoundsFn = wgslTagFn/* wgsl */`
 			fn intersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> f32 {
 
+				// TODO: a proper 3D Line / AABB check with the bottom of the bounds extended downward
+				// would be best here since we are getting some false positives.
+
 				// Transform bounds to world space. At the top level the shape matrix
 				// is identity, so world-space bounds pass through unchanged.
 				let aabb = ${ transformBVHBounds }( bounds, shape.matrixWorld );
