@@ -114,72 +114,76 @@ export class ComputeProjectionGenerator {
 		//
 		const intervalsByEdge = new Map();
 
-		const iterationCount = batchCapacity;
+		{
 
-		// fill out the edges array
-		const edgeStructStride = edgeStruct.getLength();
-		for ( let i = 0; i < iterationCount; i ++ ) {
+			const iterationCount = batchCapacity;
 
-			const edgeIndex = i;
-			const { start, end } = edges[ edgeIndex ];
-			const offset = i * edgeStructStride;
-			start.toArray( edgeBufferData, offset );
-			end.toArray( edgeBufferData, offset + 3 );
-			edgeBufferDataU32[ offset + 6 ] = edgeIndex;
+			// fill out the edges array
+			const edgeStructStride = edgeStruct.getLength();
+			for ( let i = 0; i < iterationCount; i ++ ) {
 
-		}
+				const edgeIndex = i;
+				const { start, end } = edges[ edgeIndex ];
+				const offset = i * edgeStructStride;
+				start.toArray( edgeBufferData, offset );
+				end.toArray( edgeBufferData, offset + 3 );
+				edgeBufferDataU32[ offset + 6 ] = edgeIndex;
 
-		edgeBufferAttribute.needsUpdate = true;
+			}
 
-		// accumulate potential triangle-edge overlap pairs
-		edgePairsKernel.edgesToProcess = iterationCount;
-		renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( iterationCount ) );
+			edgeBufferAttribute.needsUpdate = true;
 
-		// clear both the overlaps pointer, and pairs pointer
-		renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+			// accumulate potential triangle-edge overlap pairs
+			edgePairsKernel.edgesToProcess = iterationCount;
+			renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( iterationCount ) );
 
-		// read back actual pair count before dispatching K3
-		const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
-		const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
+			// clear both the overlaps pointer, and pairs pointer
+			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
 
-		const dispatchSize = edgeOverlapsKernel.getDispatchSize( pairCount )[ 0 ];
-		const stepSize = Math.min( dispatchSize, 65535 );
+			// read back actual pair count before dispatching K3
+			const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
+			const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
 
-		for ( let i = 0; i < dispatchSize; i += stepSize ) {
+			const dispatchSize = edgeOverlapsKernel.getDispatchSize( pairCount )[ 0 ];
+			const stepSize = Math.min( dispatchSize, 65535 );
 
-			// generate all overlaps — dispatch only over valid pairs
-			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
-			renderer.compute( edgeOverlapsKernel.kernel, [ stepSize, 1, 1 ] );
+			for ( let i = 0; i < dispatchSize; i += stepSize ) {
 
-			//
+				// generate all overlaps — dispatch only over valid pairs
+				renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
+				renderer.compute( edgeOverlapsKernel.kernel, [ stepSize, 1, 1 ] );
 
-			// read result data back
-			const [ overlaps, bufferPointers ] = await Promise.all( [
-				renderer.getArrayBufferAsync( overlapsAttribute ),
-				renderer.getArrayBufferAsync( bufferPointersAttribute ),
-			] );
+				//
 
-			const overlapsF32 = new Float32Array( overlaps );
-			const overlapsU32 = new Uint32Array( overlaps );
-			const bufferPointersU32 = new Uint32Array( bufferPointers );
-			const stride = overlapRecordStruct.getLength();
+				// read result data back
+				const [ overlaps, bufferPointers ] = await Promise.all( [
+					renderer.getArrayBufferAsync( overlapsAttribute ),
+					renderer.getArrayBufferAsync( bufferPointersAttribute ),
+				] );
 
-			console.log( bufferPointersU32[ 0 ] )
+				const overlapsF32 = new Float32Array( overlaps );
+				const overlapsU32 = new Uint32Array( overlaps );
+				const bufferPointersU32 = new Uint32Array( bufferPointers );
+				const stride = overlapRecordStruct.getLength();
 
-			for ( let i = 0; i < bufferPointersU32[ 0 ]; i ++ ) {
+				console.log( bufferPointersU32[ 0 ] )
 
-				const index = i * stride;
-				const ei = overlapsU32[ index + 0 ];
-				const t0 = overlapsF32[ index + 1 ];
-				const t1 = overlapsF32[ index + 2 ];
+				for ( let i = 0; i < bufferPointersU32[ 0 ]; i ++ ) {
 
-				if ( ! intervalsByEdge.has( ei ) ) {
+					const index = i * stride;
+					const ei = overlapsU32[ index + 0 ];
+					const t0 = overlapsF32[ index + 1 ];
+					const t1 = overlapsF32[ index + 2 ];
 
-					intervalsByEdge.set( ei, [] );
+					if ( ! intervalsByEdge.has( ei ) ) {
+
+						intervalsByEdge.set( ei, [] );
+
+					}
+
+					intervalsByEdge.get( ei ).push( [ t0, t1 ] );
 
 				}
-
-				intervalsByEdge.get( ei ).push( [ t0, t1 ] );
 
 			}
 
