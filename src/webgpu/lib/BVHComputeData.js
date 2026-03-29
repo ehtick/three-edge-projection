@@ -26,6 +26,25 @@ StructTypeNode.prototype.isStruct = true;
 
 //
 
+const isVisible = object => {
+
+	let curr = object;
+	while ( curr ) {
+
+		if ( curr.visible === false ) {
+
+			return false;
+
+		}
+
+		curr = curr.parent;
+
+	}
+
+	return true;
+
+};
+
 const applyBoneTransform = ( () => {
 
 	// a vec4-compatible version of SkinnedMesh.applyBoneTransform to support directions, positions
@@ -729,18 +748,18 @@ export class BVHComputeData {
 
 						switch ( attr.itemSize ) {
 
-						case 1:
-							_vec.y = _def.y;
-							_vec.z = _def.z;
-							_vec.w = _def.w;
-							break;
-						case 2:
-							_vec.z = _def.z;
-							_vec.w = _def.w;
-							break;
-						case 3:
-							_vec.w = _def.w;
-							break;
+							case 1:
+								_vec.y = _def.y;
+								_vec.z = _def.z;
+								_vec.w = _def.w;
+								break;
+							case 2:
+								_vec.z = _def.z;
+								_vec.w = _def.w;
+								break;
+							case 3:
+								_vec.w = _def.w;
+								break;
 
 						}
 
@@ -942,7 +961,7 @@ export class BVHComputeData {
 		// write node offset
 		transformBufferU32[ writeOffset * structs.transform.getLength() + 32 ] = bvhNodeOffsets[ root ];
 
-		let visible = object.visible;
+		let visible = isVisible( object );
 		if ( object.isBatchedMesh ) {
 
 			visible = visible && object.getVisibleAt( instanceId );
@@ -994,13 +1013,13 @@ export class BVHComputeData {
 
 		switch ( key ) {
 
-		case 'position':
-		case 'color':
-			target.set( 1, 1, 1, 1 );
-			break;
+			case 'position':
+			case 'color':
+				target.set( 1, 1, 1, 1 );
+				break;
 
-		default:
-			target.set( 0, 0, 0, 0 );
+			default:
+				target.set( 0, 0, 0, 0 );
 
 		}
 
