@@ -1,9 +1,9 @@
 import { float, int } from 'three/tsl';
 
 export const constants = {
-	PARALLEL_EPSILON: float( 1e-10 ),	// 1e-16
+	PARALLEL_EPSILON: float( 1e-10 ),
 	AREA_EPSILON: float( 1e-10 ),
-	DIST_THRESHOLD: float( 1e-10 ), 	// 1e-16
+	DIST_THRESHOLD: float( 1e-10 ),
 	VERTEX_EPSILON: float( 1e-10 ),
 
 	DOUBLE_SIDE: int( 0 ),

@@ -24,7 +24,7 @@ import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 
 // TODO: handle edges iteratively
 
-const OVERLAPS_PER_EDGE = 70;
+const OVERLAPS_PER_EDGE = 100;
 export class ComputeProjectionGenerator {
 
 	constructor( renderer ) {
@@ -33,7 +33,7 @@ export class ComputeProjectionGenerator {
 		this.angleThreshold = 50;
 		this.includeIntersectionEdges = true;
 		this.clipY = null;
-		this.batchSize = 500000;
+		this.batchSize = 10000;
 
 	}
 
@@ -74,7 +74,7 @@ export class ComputeProjectionGenerator {
 
 		// store the triangle / edge pairs to
 		const triEdgePairsAttribute = new IndirectStorageBufferAttribute( batchCapacity * OVERLAPS_PER_EDGE, triEdgePairStruct.getLength() );
-		const triEdgePairsCountAttribute = new IndirectStorageBufferAttribute( 3, 1 );
+		const triEdgePairsCountAttribute = new IndirectStorageBufferAttribute( 2, 1 );
 		const overlapsAttribute = new IndirectStorageBufferAttribute( batchCapacity * OVERLAPS_PER_EDGE, overlapRecordStruct.getLength() );
 		const bufferPointersAttribute = new IndirectStorageBufferAttribute( 2, 1 );
 		const overflowFlagAttribute = new IndirectStorageBufferAttribute( 1, 1 );
@@ -108,42 +108,53 @@ export class ComputeProjectionGenerator {
 		edgeOverlapsKernel.bufferPointers = bufferPointersAttribute;
 
 		const zeroOutKernel = new ZeroOutBufferKernel();
-		zeroOutKernel.target = bufferPointersAttribute;
 		zeroOutKernel.setWorkgroupSize( 1, 1, 1 );
 
 		//
 		const intervalsByEdge = new Map();
+		let batchStep = batchCapacity;
+		for ( let e = 0; e < edges.length; e += batchStep ) {
 
-		{
-
-			const iterationCount = batchCapacity;
+			const iterationCount = Math.min( batchStep, edges.length - e );
 
 			// fill out the edges array
 			const edgeStructStride = edgeStruct.getLength();
 			for ( let i = 0; i < iterationCount; i ++ ) {
 
-				const edgeIndex = i;
-				const { start, end } = edges[ edgeIndex ];
+				const { start, end } = edges[ e + i ];
 				const offset = i * edgeStructStride;
 				start.toArray( edgeBufferData, offset );
 				end.toArray( edgeBufferData, offset + 3 );
-				edgeBufferDataU32[ offset + 6 ] = edgeIndex;
+				edgeBufferDataU32[ offset + 6 ] = i;
 
 			}
 
 			edgeBufferAttribute.needsUpdate = true;
 
-			// clear the pairs counts
+			// clear the pairs counts & overlaps pointers
 			zeroOutKernel.target = triEdgePairsCountAttribute;
 			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+			zeroOutKernel.target = bufferPointersAttribute;
+			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+			zeroOutKernel.target = overflowFlagAttribute;
+			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
 
 			// accumulate potential triangle-edge overlap pairs
 			edgePairsKernel.edgesToProcess = iterationCount;
 			renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( iterationCount ) );
 
-			// clear both the overlaps pointer, and pairs pointer
-			zeroOutKernel.target = bufferPointersAttribute;
-			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+			const overflow = new Uint32Array( await renderer.getArrayBufferAsync( overflowFlagAttribute ) );
+			if ( overflow > 0 ) {
+
+				e -= batchStep;
+				batchStep = Math.ceil( batchStep * 0.5 );
+				continue;
+
+			} else if ( batchStep < batchCapacity ) {
+
+				batchStep *= 2.0;
+
+			}
 
 			// read back actual pair count before dispatching K3
 			const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsCountAttribute );
@@ -158,8 +169,6 @@ export class ComputeProjectionGenerator {
 				renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
 				renderer.compute( edgeOverlapsKernel.kernel, [ stepSize, 1, 1 ] );
 
-				//
-
 				// read result data back
 				const [ overlaps, bufferPointers ] = await Promise.all( [
 					renderer.getArrayBufferAsync( overlapsAttribute ),
@@ -171,12 +180,10 @@ export class ComputeProjectionGenerator {
 				const bufferPointersU32 = new Uint32Array( bufferPointers );
 				const stride = overlapRecordStruct.getLength();
 
-				console.log( bufferPointersU32[ 0 ] )
+				for ( let oi = 0; oi < bufferPointersU32[ 0 ]; oi ++ ) {
 
-				for ( let i = 0; i < bufferPointersU32[ 0 ]; i ++ ) {
-
-					const index = i * stride;
-					const ei = overlapsU32[ index + 0 ];
+					const index = oi * stride;
+					const ei = e + overlapsU32[ index + 0 ];
 					const t0 = overlapsF32[ index + 1 ];
 					const t1 = overlapsF32[ index + 2 ];
 
@@ -221,9 +228,6 @@ export class ComputeProjectionGenerator {
 			overlapsToLines( edges[ edgeIndex ], merged, true, collector.hiddenEdges );
 
 		}
-
-		const overflow = new Uint32Array( await renderer.getArrayBufferAsync( overflowFlagAttribute ) );
-		console.log( overflow[ 0 ] );
 
 		return collector;
 
