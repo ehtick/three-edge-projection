@@ -177,7 +177,13 @@ async function updateEdges() {
 	const generator = new ComputeProjectionGenerator( renderer );
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;
 
-	const result = await generator.generate( group );
+	const result = await generator.generate( group, {
+		onProgress: p => {
+
+			outputContainer.innerText = `Generating... ${ ( p * 100 ).toFixed( 2 ) }%`;
+
+		},
+	} );
 	projection.geometry.dispose();
 	projection.material.dispose();
 	projection.geometry = result.visibleEdges.getLineGeometry();

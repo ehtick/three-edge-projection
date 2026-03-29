@@ -33,9 +33,10 @@ export class ComputeProjectionGenerator {
 
 	}
 
-	async generate( scene ) {
+	async generate( scene, options = {} ) {
 
 		const { renderer, angleThreshold, includeIntersectionEdges, clipY, batchSize } = this;
+		const { onProgress = null } = options;
 
 		// collect meshes
 		const meshes = getAllMeshes( scene );
@@ -210,6 +211,12 @@ export class ComputeProjectionGenerator {
 					insertOverlap( [ t0, t1 ], intervalsByEdge.get( ei ) );
 
 				}
+
+			}
+
+			if ( onProgress ) {
+
+				onProgress( ( e + iterationCount ) / edges.length );
 
 			}
 
