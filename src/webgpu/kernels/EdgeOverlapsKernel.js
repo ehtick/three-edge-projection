@@ -24,7 +24,7 @@ export class EdgeOverlapsKernel extends ComputeKernel {
 			bvhData: { value: null },
 			globalId: globalId,
 			pairs: storage( new StorageBufferAttribute( 1, triEdgePairStruct.getLength(), Uint32Array ), triEdgePairStruct ).toReadOnly().setName( 'triEdges' ),
-			pairsSize: storage( new StorageBufferAttribute( 1, 1, Uint32Array ), 'uint' ).toReadOnly().setName( 'triEdgesSize' ),
+			pairsCount: storage( new StorageBufferAttribute( 1, 1, Uint32Array ), 'uint' ).toReadOnly().setName( 'triEdgesSize' ),
 			edges: storage( new StorageBufferAttribute( 1, edgeStruct.getLength(), Uint32Array ), edgeStruct ).toReadOnly(),
 			overlaps: storage( new StorageBufferAttribute( 1, overlapRecordStruct.getLength(), Uint32Array ), overlapRecordStruct ),
 
@@ -161,10 +161,10 @@ export class EdgeOverlapsKernel extends ComputeKernel {
 		const shader = wgslTagFn/* wgsl */`
 			fn compute( globalId: vec3u ) -> void {
 
-				// pairsSize includes the total amount of pairs written to the
+				// pairsCount includes the total amount of pairs written to the
 				// original buffer
 				let pairIndex = atomicAdd( &${ params.bufferPointers }[ 1 ], 1u );
-				if ( pairIndex >= ${ params.pairsSize }[ 1 ] ) {
+				if ( pairIndex >= ${ params.pairsCount }[ 1 ] ) {
 
 					return;
 

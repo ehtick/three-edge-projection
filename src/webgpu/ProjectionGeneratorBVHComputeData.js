@@ -103,7 +103,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	// that traverses the BVH for one edge and writes qualifying { edgeIndex, objectIndex, triIndex }
 	// records to the pairs buffer using atomic slot claiming.
 	//
-	// pairCountsStorage is a 2-element array<atomic<u32>>:
+	// pairsCountsStorage is a 2-element array<atomic<u32>>:
 	//   [0] write offset — claimed unconditionally via atomicAdd
 	//   [1] dispatch count — incremented only when the claimed slot is within capacity; equals
 	//       the number of valid pair records written and is used as K3's dispatch bound
@@ -111,8 +111,8 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	// overflowFlagStorage is a 1-element array<atomic<u32>> that accumulates the number of
 	// pairs that could not be written due to buffer overflow.
 	//
-	// NOTE: pairCountsStorage must be bound as array<atomic<u32>> (read_write storage).
-	getCollectTriEdgePairsFn( { pairsStorage, pairCountsStorage, overflowFlagStorage } ) {
+	// NOTE: pairsCountsStorage must be bound as array<atomic<u32>> (read_write storage).
+	getCollectTriEdgePairsFn( { pairsStorage, pairsCountsStorage, overflowFlagStorage } ) {
 
 		const { storage } = this;
 		const { DOUBLE_SIDE, BACK_SIDE } = overlapConstants;
@@ -241,13 +241,13 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					}
 
 					// claim a slot and write the pair record when in write mode
-					let slot = atomicAdd( &${ pairCountsStorage }[ 0 ], 1u );
+					let slot = atomicAdd( &${ pairsCountsStorage }[ 0 ], 1u );
 					if ( slot < arrayLength( &${ pairsStorage } ) ) {
 
 						${ pairsStorage }[ slot ].edgeIndex   = shape.edgeIndex;
 						${ pairsStorage }[ slot ].objectIndex = shape.objectIndex;
 						${ pairsStorage }[ slot ].triIndex    = ti;
-						atomicAdd( &${ pairCountsStorage }[ 1 ], 1u );
+						atomicAdd( &${ pairsCountsStorage }[ 1 ], 1u );
 
 					} else {
 

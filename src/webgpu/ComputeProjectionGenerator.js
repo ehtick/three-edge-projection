@@ -74,13 +74,13 @@ export class ComputeProjectionGenerator {
 
 		// store the triangle / edge pairs to
 		const triEdgePairsAttribute = new IndirectStorageBufferAttribute( batchCapacity * OVERLAPS_PER_EDGE, triEdgePairStruct.getLength() );
-		const triEdgePairsSizeAttribute = new IndirectStorageBufferAttribute( 3, 1 );
+		const triEdgePairsCountAttribute = new IndirectStorageBufferAttribute( 3, 1 );
 		const overlapsAttribute = new IndirectStorageBufferAttribute( batchCapacity * OVERLAPS_PER_EDGE, overlapRecordStruct.getLength() );
 		const bufferPointersAttribute = new IndirectStorageBufferAttribute( 2, 1 );
 		const overflowFlagAttribute = new IndirectStorageBufferAttribute( 1, 1 );
 
 		const triEdgePairsStorage = storage( triEdgePairsAttribute, triEdgePairStruct ).setName( 'TriEdge' );
-		const triEdgePairsSizeStorage = storage( triEdgePairsSizeAttribute, 'uint' ).toAtomic();
+		const triEdgePairsCountStorage = storage( triEdgePairsCountAttribute, 'uint' ).toAtomic();
 		const overflowFlagStorage = storage( overflowFlagAttribute, 'uint' ).setName( 'overflowFlag' ).toAtomic();
 
 		//
@@ -90,7 +90,7 @@ export class ComputeProjectionGenerator {
 		bvhComputeData.update();
 		bvhComputeData.fns.collectTriEdgePairs = bvhComputeData.getCollectTriEdgePairsFn( {
 			pairsStorage: triEdgePairsStorage,
-			pairCountsStorage: triEdgePairsSizeStorage,
+			pairsCountsStorage: triEdgePairsCountStorage,
 			overflowFlagStorage: overflowFlagStorage,
 		} );
 
@@ -101,7 +101,7 @@ export class ComputeProjectionGenerator {
 
 		const edgeOverlapsKernel = new EdgeOverlapsKernel();
 		edgeOverlapsKernel.pairs = triEdgePairsAttribute;
-		edgeOverlapsKernel.pairsSize = triEdgePairsSizeAttribute;
+		edgeOverlapsKernel.pairsCount = triEdgePairsCountAttribute;
 		edgeOverlapsKernel.bvhData = bvhComputeData;
 		edgeOverlapsKernel.edges = edgeBufferAttribute;
 		edgeOverlapsKernel.overlaps = overlapsAttribute;
@@ -141,7 +141,7 @@ export class ComputeProjectionGenerator {
 			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
 
 			// read back actual pair count before dispatching K3
-			const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
+			const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsCountAttribute );
 			const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
 
 			const dispatchSize = edgeOverlapsKernel.getDispatchSize( pairCount )[ 0 ];
