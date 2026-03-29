@@ -132,6 +132,8 @@ export class ProjectionGenerator {
 		//
 		const intervalsByEdge = new Map();
 		let batchStep = batchCapacity;
+		let progress = 0;
+		let promises = [];
 		for ( let e = 0; e < edges.length; e += batchStep ) {
 
 			const iterationCount = Math.min( batchStep, edges.length - e );
@@ -195,40 +197,54 @@ export class ProjectionGenerator {
 
 			}
 
-			// read result data back
-			const [ overlaps, bufferPointers ] = await Promise.all( [
-				renderer.getArrayBufferAsync( overlapsAttribute ),
-				renderer.getArrayBufferAsync( bufferPointersAttribute ),
-			] );
+			//
 
-			const overlapsF32 = new Float32Array( overlaps );
-			const overlapsU32 = new Uint32Array( overlaps );
-			const bufferPointersU32 = new Uint32Array( bufferPointers );
-			const stride = overlapRecordStruct.getLength();
+			// run the data read back asynchronously so we can prepare and issue the subsequent
+			// compute while we wait for this data.
+			promises.push( ( async () => {
 
-			for ( let oi = 0, ol = bufferPointersU32[ 0 ]; oi < ol; oi ++ ) {
+				// declare "e" variable locally so it's not changing out from under us
+				// after the async operations.
+				const local_e = e;
+				const [ overlaps, bufferPointers ] = await Promise.all( [
+					renderer.getArrayBufferAsync( overlapsAttribute ),
+					renderer.getArrayBufferAsync( bufferPointersAttribute ),
+				] );
 
-				const index = oi * stride;
-				const ei = e + overlapsU32[ index + 0 ];
-				const t0 = overlapsF32[ index + 1 ];
-				const t1 = overlapsF32[ index + 2 ];
+				// read buffers
+				const overlapsF32 = new Float32Array( overlaps );
+				const overlapsU32 = new Uint32Array( overlaps );
+				const bufferPointersU32 = new Uint32Array( bufferPointers );
+				const stride = overlapRecordStruct.getLength();
 
-				if ( ! intervalsByEdge.has( ei ) ) {
+				// push the overlaps
+				for ( let oi = 0, ol = bufferPointersU32[ 0 ]; oi < ol; oi ++ ) {
 
-					intervalsByEdge.set( ei, [] );
+					const index = oi * stride;
+					const ei = local_e + overlapsU32[ index + 0 ];
+					const t0 = overlapsF32[ index + 1 ];
+					const t1 = overlapsF32[ index + 2 ];
+
+					if ( ! intervalsByEdge.has( ei ) ) {
+
+						intervalsByEdge.set( ei, [] );
+
+					}
+
+					insertOverlap( [ t0, t1 ], intervalsByEdge.get( ei ) );
 
 				}
 
-				insertOverlap( [ t0, t1 ], intervalsByEdge.get( ei ) );
+				progress += iterationCount;
 
-			}
+				// fire progress
+				if ( onProgress ) {
 
-			// fire progress
-			if ( onProgress ) {
+					onProgress( progress / edges.length );
 
-				onProgress( ( e + iterationCount ) / edges.length );
+				}
 
-			}
+			} )() );
 
 			// try to grow the batch step towards the original stride
 			if ( batchStep < batchCapacity ) {
@@ -241,6 +257,10 @@ export class ProjectionGenerator {
 
 		}
 
+		// wait for all the data read back to finish
+		await Promise.all( promises );
+
+		// push all edges to the "results" object
 		const collector = new ProjectionResult();
 		let visibleStart = 0;
 		let hiddenStart = 0;
