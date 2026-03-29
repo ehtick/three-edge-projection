@@ -125,11 +125,11 @@ export class ComputeProjectionGenerator {
 		renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( batchCapacity ) );
 
 		// read back actual pair count before dispatching K3
-		// const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
-		// const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
+		const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsSizeAttribute );
+		const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
 
 		// generate all overlaps — dispatch only over valid pairs
-		renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( 3964384 ) );
+		renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( pairCount ) );
 
 		//
 
