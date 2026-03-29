@@ -4,6 +4,14 @@
   "description": "",
   "type": "module",
   "main": "src/index.js",
+	"exports": {
+    ".": {
+      "import": "./src/index.js"
+    },
+    "./worker": "./src/worker/index.js",
+    "./webgpu": "./src/webgpu/index.js",
+    "./src/*": "./src/*"
+  },
   "scripts": {
     "start": "vite --config ./vite.config.js",
     "build-examples": "vite build --config ./vite.config.js",

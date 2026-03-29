@@ -18,11 +18,7 @@ import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 
 // TODO: Consider storing the ranges with multiple edges clipped per thread to reduce the array size needed
 
-// TODO: initialize the compute kernels + buffers once to avoid construction overhead
-
 // TODO: expose method for gathering edges per mesh
-
-// TODO: handle edges iteratively
 
 const OVERLAPS_PER_EDGE = 100;
 export class ComputeProjectionGenerator {
@@ -31,9 +27,9 @@ export class ComputeProjectionGenerator {
 
 		this.renderer = renderer;
 		this.angleThreshold = 50;
+		this.batchSize = 10000;
 		this.includeIntersectionEdges = true;
 		this.clipY = null;
-		this.batchSize = 10000;
 
 	}
 
