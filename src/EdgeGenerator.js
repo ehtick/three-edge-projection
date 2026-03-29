@@ -3,7 +3,6 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { generateEdges } from './utils/generateEdges.js';
 import { generateIntersectionEdges } from './utils/generateIntersectionEdges.js';
 import { getAllMeshes } from './utils/getAllMeshes.js';
-import { clipEdges } from './utils/clipEdges.js';
 
 const _BtoA = /* @__PURE__ */ new Matrix4();
 const _toLocalMatrix = /* @__PURE__ */ new Matrix4();
