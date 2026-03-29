@@ -123,25 +123,43 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				// Transform bounds to world space. At the top level the shape matrix
 				// is identity, so world-space bounds pass through unchanged.
 				let aabb = ${ transformBVHBounds }( bounds, shape.matrixWorld );
+				let aabbMin = vec3( aabb.min[ 0 ], aabb.min[ 1 ], aabb.min[ 2 ] );
+				let aabbMax = vec3( aabb.max[ 0 ], aabb.max[ 1 ], aabb.max[ 2 ] );
 
 				// Y-cull: bounds entirely below the line
-				if ( aabb.max[ 1 ] <= min( shape.worldStart.y, shape.worldEnd.y ) ) {
+				if ( aabbMax.y <= min( shape.worldStart.y, shape.worldEnd.y ) ) {
 
 					return - 1.0;
 
 				}
 
 
-				// TODO: confirm this is correct
-				// XZ cull against the line's world-space XZ extents
+				// AABB vs AABB test
 				let lineMinX = min( shape.worldStart.x, shape.worldEnd.x );
 				let lineMaxX = max( shape.worldStart.x, shape.worldEnd.x );
 				let lineMinZ = min( shape.worldStart.z, shape.worldEnd.z );
 				let lineMaxZ = max( shape.worldStart.z, shape.worldEnd.z );
 				if (
-					aabb.max[ 0 ] < lineMinX || aabb.min[ 0 ] > lineMaxX ||
-					aabb.max[ 2 ] < lineMinZ || aabb.min[ 2 ] > lineMaxZ
+					aabbMax.x < lineMinX || aabbMin.x > lineMaxX ||
+					aabbMax.z < lineMinZ || aabbMin.z > lineMaxZ
 				) {
+
+					return - 1.0;
+
+				}
+
+				// edge SAT axis
+				let segDelta = shape.worldEnd.xz - shape.worldStart.xz;
+				let segNormal = vec2f( - segDelta.y, segDelta.x );
+				let segProj = dot( segNormal, vec2f( shape.worldStart.x, shape.worldStart.z ) );
+
+				let aabbCenter = ( aabbMin.xz + aabbMax.xz ) * 0.5;
+				let aabbHalf = ( aabbMax.xz - aabbMin.xz ) * 0.5;
+
+				let aabbCenterProj = dot( segNormal, aabbCenter );
+				let aabbHalfProj = dot( abs( segNormal ), aabbHalf );
+
+				if ( abs( aabbCenterProj - segProj ) > aabbHalfProj ) {
 
 					return - 1.0;
 
