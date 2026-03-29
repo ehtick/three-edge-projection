@@ -4,16 +4,15 @@ import { MeshBVH, SAH } from 'three-mesh-bvh';
 import * as OBC from '@thatopen/components';
 import * as WEBIFC from 'web-ifc';
 import { GeometryEngine } from '@thatopen/fragments';
-import { ProjectionGenerator, VisibilityCuller, PlanarIntersectionGenerator } from '..';
-import {Logger} from '../src/utils/Logger.js';
+import { PlanarIntersectionGenerator } from '..';
+import { WebGPURenderer } from 'three/webgpu';
+import { ProjectionGenerator, MeshVisibilityCuller } from 'three-edge-projection/webgpu';
 
 
 const params = {
 	displayModel: true,
-	logging: true,
 	displayDrawThroughProjection: false,
 	includeIntersectionEdges: false,
-	useWebGPU: true,
 	enableClipping: false,
 	displayClippingEdges: true,
 	rotate: () => {
@@ -28,7 +27,7 @@ const params = {
 	},
 	regenerate: () => {
 
-		task = updateEdges();
+		updateEdges();
 
 	},
 };
@@ -37,8 +36,6 @@ const ANGLE_THRESHOLD = 50;
 let gui;
 let projection, drawThroughProjection;
 let outputContainer;
-let task = null;
-Logger.enabled = params.logging;
 
 
 const components = new OBC.Components();
@@ -59,6 +56,9 @@ world.scene.three.add(new THREE.AxesHelper());
 
 outputContainer = document.getElementById('output');
 
+// Initialize a WebGPU renderer for compute (separate from OBC's WebGL display renderer)
+const gpuRenderer = new WebGPURenderer();
+await gpuRenderer.init();
 
 // Initialize GeometryEngine for boolean operations
 const ifcApi = new WEBIFC.IfcAPI();
@@ -231,8 +231,8 @@ world.scene.three.add(groundPlane);
 
 const clipper = components.get(OBC.Clipper);
 // const clipNormal = new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(Math.PI / 2, 0, 0)).applyEuler(new THREE.Euler(Math.PI / 4, Math.PI / 4, 0));
-const planeId = clipper.createFromNormalAndCoplanarPoint(world, new THREE.Vector3(0, 1, 0), new THREE.Vector3(-50, 50, 0))
-const plane = clipper.list.get(planeId);
+// const planeId = clipper.createFromNormalAndCoplanarPoint(world, new THREE.Vector3(0, 1, 0), new THREE.Vector3(-50, 50, 0))
+// const plane = clipper.list.get(planeId);
 
 // --- Clipping edge projection ---
 const clippingEdgeMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
@@ -425,28 +425,13 @@ world.scene.three.add(projection, drawThroughProjection);
 
 gui = new GUI();
 gui.add(params, 'includeIntersectionEdges');
-gui.add(params, 'useWebGPU');
 gui.add(params, 'displayDrawThroughProjection');
 gui.add(params, 'enableClipping');
 gui.add(params, 'displayClippingEdges');
-gui.add(params, 'logging').onChange(() => {
-	Logger.enabled = params.logging;
-});
 gui.add(params, 'rotate');
 gui.add(params, 'regenerate');
 
 world.renderer.onBeforeUpdate.add(() => {
-
-	if (task) {
-
-		const res = task.next();
-		if (res.done) {
-
-			task = null;
-
-		}
-
-	}
 
 	drawThroughProjection.visible = params.displayDrawThroughProjection;
 	clippingEdgesGroup.visible = params.displayClippingEdges;
@@ -454,7 +439,7 @@ world.renderer.onBeforeUpdate.add(() => {
 });
 
 
-function* updateEdges(runTime = 30) {
+async function updateEdges() {
 
 	outputContainer.innerText = 'Generating...';
 
@@ -473,45 +458,32 @@ function* updateEdges(runTime = 30) {
 		applyClipping();
 	}
 
-	const generator = new ProjectionGenerator();
-	generator.iterationTime = runTime;
+	const generator = new ProjectionGenerator(gpuRenderer);
 	generator.angleThreshold = ANGLE_THRESHOLD;
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;
-	generator.useWebGPU = params.useWebGPU;
-	console.log(generator.includeIntersectionEdges);
 
 	// Use clippedMeshes if clipping is enabled, otherwise allMeshes
 	const meshSource = params.enableClipping ? clippedMeshes : allMeshes;
+	let input = await new MeshVisibilityCuller(gpuRenderer, { pixelsPerMeter: 0.01 }).cull(meshSource);
 
-	const culler = new VisibilityCuller(world.renderer.three, { pixelsPerMeter: 0.01 });
-	culler.clippingPlanes = [plane.three];
+	const result = await generator.generate(input, {
+		onProgress: p => {
 
-	const collection = yield* generator.generate(meshSource, {
-		visibilityCuller: culler,
-		onProgress: (msg, tot, edges) => {
-
-			outputContainer.innerText = msg;
-			if (tot) outputContainer.innerText += ' ' + (100 * tot).toFixed(1) + '%';
-
-			if (edges) {
-
-				projection.geometry.dispose();
-				projection.geometry = edges.getVisibleLineGeometry();
-
-			}
+			outputContainer.innerText = `Generating... ${(p * 100).toFixed(1)}%`;
 
 		},
 	});
+
 	drawThroughProjection.geometry.dispose();
-	drawThroughProjection.geometry = collection.getHiddenLineGeometry();
+	drawThroughProjection.geometry = result.hiddenEdges.getLineGeometry();
 	drawThroughProjection.computeLineDistances();
 
 	projection.geometry.dispose();
-	projection.geometry = collection.getVisibleLineGeometry();
+	projection.geometry = result.visibleEdges.getLineGeometry();
 	const trimTime = window.performance.now() - timeStart;
 
 	outputContainer.innerText = `Generation time: ${trimTime.toFixed(2)}ms`;
 
 }
 
-// task = updateEdges();
+updateEdges();
