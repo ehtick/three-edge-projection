@@ -136,7 +136,6 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				}
 
-
 				// AABB vs AABB test
 				let lineMinX = min( shape.worldStart.x, shape.worldEnd.x );
 				let lineMaxX = max( shape.worldStart.x, shape.worldEnd.x );

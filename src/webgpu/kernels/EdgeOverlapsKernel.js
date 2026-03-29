@@ -26,8 +26,11 @@ export class EdgeOverlapsKernel extends ComputeKernel {
 			pairs: storage( new StorageBufferAttribute( 1, triEdgePairStruct.getLength(), Uint32Array ), triEdgePairStruct ).toReadOnly().setName( 'triEdges' ),
 			pairsSize: storage( new StorageBufferAttribute( 1, 1, Uint32Array ), 'uint' ).toReadOnly().setName( 'triEdgesSize' ),
 			edges: storage( new StorageBufferAttribute( 1, edgeStruct.getLength(), Uint32Array ), edgeStruct ).toReadOnly(),
-			overlapsSize: storage( new StorageBufferAttribute( 1, 3, Uint32Array ), 'uint' ).toAtomic(),
 			overlaps: storage( new StorageBufferAttribute( 1, overlapRecordStruct.getLength(), Uint32Array ), overlapRecordStruct ),
+
+			// el 0: number of overlaps added
+			// el 1: number of pairs processed
+			bufferPointers: storage( new StorageBufferAttribute( 1, 2, Uint32Array ), 'uint' ).toAtomic(),
 		};
 
 		const indexStorage = proxy( 'bvhData.value.storage.index', params );
@@ -141,7 +144,7 @@ export class EdgeOverlapsKernel extends ComputeKernel {
 					}
 
 					// claim a slot and write the overlap record
-					let slot = atomicAdd( &${ params.overlapsSize }[ 0 ], 1u );
+					let slot = atomicAdd( &${ params.bufferPointers }[ 0 ], 1u );
 					if ( slot < arrayLength( &${ params.overlaps } ) ) {
 
 						${ params.overlaps }[ slot ].edgeIndex = edgeIndex;
@@ -160,7 +163,7 @@ export class EdgeOverlapsKernel extends ComputeKernel {
 
 				// pairsSize includes the total amount of pairs written to the
 				// original buffer
-				let pairIndex = atomicAdd( &${ params.overlapsSize }[ 1 ], 1u );
+				let pairIndex = atomicAdd( &${ params.bufferPointers }[ 1 ], 1u );
 				if ( pairIndex >= ${ params.pairsSize }[ 1 ] ) {
 
 					return;

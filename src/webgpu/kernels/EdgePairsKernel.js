@@ -1,4 +1,4 @@
-import { globalId, storage } from 'three/tsl';
+import { globalId, storage, uniform } from 'three/tsl';
 import { wgslTagFn } from '../lib/nodes/WGSLTagFnNode.js';
 import { ComputeKernel } from '../utils/ComputeKernel.js';
 import { proxyFn } from '../lib/nodes/NodeProxy.js';
@@ -13,17 +13,18 @@ export class EdgePairsKernel extends ComputeKernel {
 		const params = {
 			bvhData: { value: null },
 			globalId: globalId,
+			edgesToProcess: uniform( 1, 'uint' ),
 			edges: storage( new StorageBufferAttribute( 1, 1, Uint32Array ), edgeStruct ).toReadOnly().setName( 'edges' ),
 		};
 
 		const edges = params.edges;
 		const traversalFn = proxyFn( 'bvhData.value.fns.collectTriEdgePairs', params );
 		const shader = wgslTagFn/* wgsl */`
-			fn compute( globalId: vec3u ) -> void {
+			fn compute( globalId: vec3u, edgesToProcess: u32 ) -> void {
 
 				let edgeIndex = globalId.x;
 				let edgeListLength = arrayLength( &${ edges } );
-				if ( edgeIndex >= edgeListLength ) {
+				if ( edgeIndex >= edgeListLength || edgeIndex >= edgesToProcess ) {
 
 					return;
 
