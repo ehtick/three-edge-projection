@@ -112,6 +112,36 @@ export class ProjectionResult {
 
 	}
 
+	getVisibleRangeForMesh( mesh ) {
+
+		const range = this.visibleMeshToRange.get( mesh );
+		if ( ! range ) {
+
+			return null;
+
+		} else {
+
+			return { start: range.start * 2, count: range.count * 2 };
+
+		}
+
+	}
+
+	getHiddenRangeForMesh( mesh ) {
+
+		const range = this.hiddenMeshToRange.get( mesh );
+		if ( ! range ) {
+
+			return null;
+
+		} else {
+
+			return { start: range.start * 2, count: range.count * 2 };
+
+		}
+
+	}
+
 }
 
 class ProjectedEdgeCollector {
