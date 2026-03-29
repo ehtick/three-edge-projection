@@ -3,7 +3,7 @@ import { StructTypeNode } from 'three/webgpu';
 import { BVHComputeData } from './lib/BVHComputeData.js';
 import { MeshBVH, SAH, SkinnedMeshBVH } from 'three-mesh-bvh';
 import { wgslTagFn } from './lib/nodes/WGSLTagFnNode.js';
-import { bvhNodeStruct, bvhNodeBoundsStruct } from './lib/wgsl/structs.wgsl.js';
+import { bvhNodeBoundsStruct } from './lib/wgsl/structs.wgsl.js';
 import { transformBVHBounds } from './nodes/utils.wgsl.js';
 import { constants as overlapConstants } from './nodes/common.wgsl.js';
 import { isLineTriangleEdge } from './nodes/overlapFunctions.wgsl.js';

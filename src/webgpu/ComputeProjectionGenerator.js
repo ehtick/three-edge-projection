@@ -33,13 +33,13 @@ export class ComputeProjectionGenerator {
 		this.angleThreshold = 50;
 		this.includeIntersectionEdges = true;
 		this.clipY = null;
-		this.edgeBatchCapacity = 500000;
+		this.batchSize = 500000;
 
 	}
 
 	async generate( scene ) {
 
-		const { renderer, angleThreshold, includeIntersectionEdges, clipY, edgeBatchCapacity } = this;
+		const { renderer, angleThreshold, includeIntersectionEdges, clipY, batchSize } = this;
 
 		// collect meshes
 		const meshes = getAllMeshes( scene );
@@ -67,7 +67,7 @@ export class ComputeProjectionGenerator {
 		//
 
 		// allocate a buffer of edges for at most the requested capacity
-		const batchCapacity = Math.min( edgeBatchCapacity, edges.length );
+		const batchCapacity = Math.min( batchSize, edges.length );
 		const edgeBufferData = new Float32Array( batchCapacity * edgeStruct.getLength() );
 		const edgeBufferDataU32 = new Uint32Array( edgeBufferData.buffer );
 		const edgeBufferAttribute = new StorageBufferAttribute( edgeBufferData, edgeStruct.getLength() );
@@ -133,11 +133,16 @@ export class ComputeProjectionGenerator {
 
 			edgeBufferAttribute.needsUpdate = true;
 
+			// clear the pairs counts
+			zeroOutKernel.target = triEdgePairsCountAttribute;
+			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+
 			// accumulate potential triangle-edge overlap pairs
 			edgePairsKernel.edgesToProcess = iterationCount;
 			renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( iterationCount ) );
 
 			// clear both the overlaps pointer, and pairs pointer
+			zeroOutKernel.target = bufferPointersAttribute;
 			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
 
 			// read back actual pair count before dispatching K3
