@@ -112,7 +112,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	// pairs that could not be written due to buffer overflow.
 	//
 	// NOTE: pairsCountsStorage must be bound as array<atomic<u32>> (read_write storage).
-	getCollectTriEdgePairsFn( { overlapsStorage, bufferPointersStorage, overflowFlagStorage } ) {
+	getCollectEdgeOverlapsFn( { overlapsStorage, bufferPointersStorage, overflowFlagStorage } ) {
 
 		const { storage } = this;
 		const { DOUBLE_SIDE, BACK_SIDE, DIST_THRESHOLD } = overlapConstants;
@@ -304,7 +304,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		`;
 
 		const traversalFn = this.getShapecastFn( {
-			name: 'collectTriEdgePairs',
+			name: 'collectEdgeOverlaps',
 			shapeStruct: edgeLineShapeStruct,
 			resultStruct: edgeOverlapResultStruct,
 			intersectsBoundsFn,

@@ -5,22 +5,17 @@ import { EdgeGenerator } from '../EdgeGenerator.js';
 import { isYProjectedLineDegenerate } from '../utils/triangleLineUtils.js';
 import { ProjectionGeneratorBVHComputeData } from './ProjectionGeneratorBVHComputeData.js';
 import { edgeStruct, overlapRecordStruct } from './nodes/structs.wgsl.js';
-import { EdgePairsKernel } from './kernels/EdgePairsKernel.js';
+import { EdgeOverlapsKernel } from './kernels/EdgeOverlapsKernel.js';
 import { overlapsToLines } from '../utils/overlapUtils.js';
 import { insertOverlap } from '../utils/getProjectedOverlaps.js';
 import { ProjectionResult } from '../ProjectionGenerator.js';
 import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 
-// TODO: edge splitting — long edges that span a large portion of the scene create heavy single-thread
-// work in kernel 2. splitting them into sub-edges at pack time distributes that work across more
-// threads. each sub-edge would carry tStart/tEnd (its [0,1] range within the original edge) so the
-// GPU overlap t0/t1 values can be remapped back to original-edge space on the CPU before merging.
-
 // TODO: Consider storing the ranges with multiple edges clipped per thread to reduce the array size needed
 
 const MAX_BUFFER_SIZE = 134217728;
 
-const MAX_PAIRS_COUNT = Math.floor( MAX_BUFFER_SIZE / ( overlapRecordStruct.getLength() * 4 ) );
+const MAX_OVERLAPS_COUNT = Math.floor( MAX_BUFFER_SIZE / ( overlapRecordStruct.getLength() * 4 ) );
 
 const nextFrame = () => new Promise( resolve => requestAnimationFrame( resolve ) );
 export class ProjectionGenerator {
@@ -92,7 +87,7 @@ export class ProjectionGenerator {
 		const edgeBufferAttribute = new StorageBufferAttribute( edgeBufferData, edgeStruct.getLength() );
 
 		// overlap output buffer and atomic counter
-		const overlapsAttribute = new IndirectStorageBufferAttribute( MAX_PAIRS_COUNT, overlapRecordStruct.getLength(), Uint32Array );
+		const overlapsAttribute = new IndirectStorageBufferAttribute( MAX_OVERLAPS_COUNT, overlapRecordStruct.getLength(), Uint32Array );
 		const bufferPointersAttribute = new IndirectStorageBufferAttribute( 1, 1 );
 		const overflowFlagAttribute = new IndirectStorageBufferAttribute( 1, 1 );
 
@@ -105,17 +100,17 @@ export class ProjectionGenerator {
 		// set up scene data
 		const bvhComputeData = new ProjectionGeneratorBVHComputeData( meshes );
 		bvhComputeData.update();
-		bvhComputeData.fns.collectTriEdgePairs = bvhComputeData.getCollectTriEdgePairsFn( {
+		bvhComputeData.fns.collectEdgeOverlaps = bvhComputeData.getCollectEdgeOverlapsFn( {
 			overlapsStorage: overlapsStorage,
 			bufferPointersStorage: bufferPointersStorage,
 			overflowFlagStorage: overflowFlagStorage,
 		} );
 
 		// initialize kernels
-		const edgePairsKernel = new EdgePairsKernel();
-		edgePairsKernel.setWorkgroupSize( 64, 1, 1 );
-		edgePairsKernel.edges = edgeBufferAttribute;
-		edgePairsKernel.bvhData = bvhComputeData;
+		const edgeOverlapsKernel = new EdgeOverlapsKernel();
+		edgeOverlapsKernel.setWorkgroupSize( 64, 1, 1 );
+		edgeOverlapsKernel.edges = edgeBufferAttribute;
+		edgeOverlapsKernel.bvhData = bvhComputeData;
 
 		const zeroOutKernel = new ZeroOutBufferKernel();
 		zeroOutKernel.setWorkgroupSize( 1, 1, 1 );
@@ -130,7 +125,7 @@ export class ProjectionGenerator {
 
 		const runJob = async ( start, count ) => {
 
-			if ( signal?.isAborted ) {
+			if ( signal?.aborted ) {
 
 				return;
 
@@ -157,8 +152,8 @@ export class ProjectionGenerator {
 			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
 
 			// traverse BVH and write overlaps directly
-			edgePairsKernel.edgesToProcess = count;
-			renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( count ) );
+			edgeOverlapsKernel.edgesToProcess = count;
+			renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( count ) );
 
 			const [ overlaps, bufferPointers, overflowBuffer ] = await Promise.all( [
 				renderer.getArrayBufferAsync( overlapsAttribute ),
@@ -166,7 +161,7 @@ export class ProjectionGenerator {
 				renderer.getArrayBufferAsync( overflowFlagAttribute ),
 			] );
 
-			if ( signal?.isAborted ) {
+			if ( signal?.aborted ) {
 
 				return;
 
