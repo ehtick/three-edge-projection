@@ -22,13 +22,13 @@ export const triEdgePairStruct = new StructTypeNode( {
 	edgeIndex: 'uint',
 	objectIndex: 'uint',
 	triIndex: 'uint',
+	_alignment0: 'uint',
 }, 'TriEdgePair' );
-triEdgePairStruct.getLength = () => 3;
 
 // One entry per visible overlap interval recorded during kernel 3.
 export const overlapRecordStruct = new StructTypeNode( {
 	edgeIndex: 'uint',
-	t0: 'f32',
-	t1: 'f32',
+	t0: 'float',
+	t1: 'float',
+	_alignment0: 'uint',
 }, 'OverlapRecord' );
-overlapRecordStruct.getLength = () => 3;

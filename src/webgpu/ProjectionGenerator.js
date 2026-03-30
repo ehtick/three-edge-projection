@@ -21,6 +21,11 @@ import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 
 const OVERLAPS_PER_EDGE = 100;
 const MAX_DISPATCH_SIZE = 65535;
+const MAX_BUFFER_SIZE = 134217728;
+
+const LARGEST_STRUCT_SIZE = Math.max( triEdgePairStruct.getLength(), overlapRecordStruct.getLength() );
+const MAX_PAIRS_COUNT = Math.floor( MAX_BUFFER_SIZE / ( LARGEST_STRUCT_SIZE * 4 ) );
+
 export class ProjectionGenerator {
 
 	constructor( renderer ) {
@@ -90,9 +95,9 @@ export class ProjectionGenerator {
 		const edgeBufferAttribute = new StorageBufferAttribute( edgeBufferData, edgeStruct.getLength() );
 
 		// store the triangle / edge pairs to
-		const triEdgePairsAttribute = new IndirectStorageBufferAttribute( batchCapacity * OVERLAPS_PER_EDGE, triEdgePairStruct.getLength() );
-		const triEdgePairsCountAttribute = new IndirectStorageBufferAttribute( 2, 1 );
-		const overlapsAttribute = new IndirectStorageBufferAttribute( batchCapacity * OVERLAPS_PER_EDGE, overlapRecordStruct.getLength() );
+		const triEdgePairsAttribute = new StorageBufferAttribute( MAX_PAIRS_COUNT, triEdgePairStruct.getLength(), Uint32Array );
+		const triEdgePairsCountAttribute = new StorageBufferAttribute( 2, 1 );
+		const overlapsAttribute = new IndirectStorageBufferAttribute( MAX_PAIRS_COUNT, overlapRecordStruct.getLength(), Uint32Array );
 		const bufferPointersAttribute = new IndirectStorageBufferAttribute( 2, 1 );
 		const overflowFlagAttribute = new IndirectStorageBufferAttribute( 1, 1 );
 
