@@ -88,30 +88,6 @@ async function init() {
 		.loadAsync( 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/nasa-m2020/Perseverance.glb' );
 	model = gltf.scene;
 
-
-	// initialize BVHs
-	model.traverse( c => {
-
-		if ( c.geometry && ! c.geometry.boundsTree ) {
-
-			const elCount = c.geometry.index ? c.geometry.index.count : c.geometry.attributes.position.count;
-			c.geometry.groups.forEach( grp => {
-
-				if ( grp.count === Infinity ) {
-
-					grp.count = elCount - grp.start;
-
-				}
-
-			} );
-
-			c.geometry.boundsTree = new MeshBVH( c.geometry, { maxLeafSize: 1, strategy: SAH } );
-
-		}
-
-	} );
-
-	// center model
 	const box = new Box3();
 	box.setFromObject( model, true );
 	box.getCenter( group.position ).multiplyScalar( - 1 );
