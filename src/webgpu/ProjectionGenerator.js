@@ -184,10 +184,8 @@ export class ProjectionGenerator {
 			}
 
 			// read back actual pair count before dispatching
-			const pairCountBuf = await renderer.getArrayBufferAsync( triEdgePairsCountAttribute );
-			const pairCount = new Uint32Array( pairCountBuf )[ 1 ];
 
-			const dispatchSize = edgeOverlapsKernel.getDispatchSize( pairCount )[ 0 ];
+			const dispatchSize = edgeOverlapsKernel.getDispatchSize( triEdgePairsAttribute.count )[ 0 ];
 			const dispatchStepSize = Math.min( dispatchSize, MAX_DISPATCH_SIZE );
 
 			// run dispatches for all overlaps
