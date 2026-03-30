@@ -5,6 +5,7 @@ import {
 	AmbientLight,
 	Group,
 	BufferGeometry,
+	BufferAttribute,
 	LineSegments,
 	LineBasicMaterial,
 	PerspectiveCamera,
@@ -16,12 +17,14 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { MeshBVH, SAH } from 'three-mesh-bvh';
 import { ProjectionGenerator, MeshVisibilityCuller } from 'three-edge-projection/webgpu';
+import { Color } from 'three';
 
 const params = {
 	displayModel: true,
 	displayDrawThroughProjection: false,
 	includeIntersectionEdges: false,
 	visibilityCullMeshes: false,
+	perObjectColors: false,
 	regenerate: () => {
 
 		updateEdges();
@@ -120,8 +123,8 @@ async function init() {
 	group.updateMatrixWorld( true );
 
 	// create projection display meshes
-	projection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { color: 0x030303, depthWrite: false } ) );
-	drawThroughProjection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { color: 0xcacaca, depthWrite: false } ) );
+	projection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { depthWrite: false } ) );
+	drawThroughProjection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { depthWrite: false } ) );
 	drawThroughProjection.renderOrder = - 1;
 	scene.add( projection, drawThroughProjection );
 
@@ -145,6 +148,7 @@ async function init() {
 	gui.add( params, 'displayDrawThroughProjection' ).onChange( () => needsRender = true );
 	gui.add( params, 'includeIntersectionEdges' );
 	gui.add( params, 'visibilityCullMeshes' );
+	gui.add( params, 'perObjectColors' );
 	gui.add( params, 'rotate' );
 	gui.add( params, 'regenerate' );
 
@@ -198,18 +202,62 @@ async function updateEdges() {
 
 		},
 	} );
+	const visGeom = result.visibleEdges.getLineGeometry();
+	const hidGeom = result.hiddenEdges.getLineGeometry();
+	if ( params.perObjectColors ) {
+
+		console.time('TEST')
+
+		applyPerObjectColors( result.visibleEdges, visGeom );
+		applyPerObjectColors( result.hiddenEdges, hidGeom, 0.8 );
+		console.timeEnd('TEST')
+
+	}
+
 	projection.geometry.dispose();
 	projection.material.dispose();
-	projection.geometry = result.visibleEdges.getLineGeometry();
+	projection.geometry = visGeom;
+	projection.material.vertexColors = params.perObjectColors;
+	projection.material.color.set( params.perObjectColors ? 0xffffff : 0x030303 );
 
 	drawThroughProjection.geometry.dispose();
 	drawThroughProjection.material.dispose();
-	drawThroughProjection.geometry = result.hiddenEdges.getLineGeometry();
+	drawThroughProjection.geometry = hidGeom;
+	drawThroughProjection.material.vertexColors = params.perObjectColors;
+	drawThroughProjection.material.color.set( params.perObjectColors ? 0xffffff : 0xcacaca );
 
 	const elapsed = window.performance.now() - timeStart;
 	outputContainer.innerText = `Generation time: ${ elapsed.toFixed( 2 ) }ms`;
 
 	needsRender = true;
+
+}
+
+function applyPerObjectColors( edgeSet, geometry, lightness = 0.5 ) {
+
+	const totalVertices = geometry.attributes.position.count;
+	const colorArray = new Float32Array( totalVertices * 3 );
+	const color = new Color();
+
+	for ( const mesh of edgeSet.meshToSegments.keys() ) {
+
+		const range = edgeSet.getRangeForMesh( mesh );
+		if ( ! range ) continue;
+
+		color.setHSL( Math.random(), 0.75, lightness );
+
+
+		for ( let i = range.start; i < range.start + range.count; i ++ ) {
+
+			colorArray[ i * 3 + 0 ] = color.r;
+			colorArray[ i * 3 + 1 ] = color.g;
+			colorArray[ i * 3 + 2 ] = color.b;
+
+		}
+
+	}
+
+	geometry.setAttribute( 'color', new BufferAttribute( colorArray, 3 ) );
 
 }
 
