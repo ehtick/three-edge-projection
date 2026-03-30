@@ -202,6 +202,7 @@ async function updateEdges() {
 	projection.geometry = result.visibleEdges.getLineGeometry();
 
 	drawThroughProjection.geometry.dispose();
+	drawThroughProjection.material.dispose();
 	drawThroughProjection.geometry = result.hiddenEdges.getLineGeometry();
 
 	const elapsed = window.performance.now() - timeStart;

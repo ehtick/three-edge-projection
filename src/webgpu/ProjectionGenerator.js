@@ -25,6 +25,7 @@ const MAX_BUFFER_SIZE = 134217728;
 const LARGEST_STRUCT_SIZE = Math.max( triEdgePairStruct.getLength(), overlapRecordStruct.getLength() );
 const MAX_PAIRS_COUNT = Math.floor( MAX_BUFFER_SIZE / ( LARGEST_STRUCT_SIZE * 4 ) );
 
+const nextFrame = () => new Promise( resolve => requestAnimationFrame( resolve ) );
 export class ProjectionGenerator {
 
 	constructor( renderer ) {
@@ -139,139 +140,132 @@ export class ProjectionGenerator {
 		const promises = [];
 		const edgeStructStride = edgeStruct.getLength();
 
-		// build initial job queue — one job per batchCapacity chunk
-		const queue = [];
+		const jobQueue = new JobQueue();
+
+		const runJob = async ( start, count ) => {
+
+			if ( signal?.isAborted ) {
+
+				return;
+
+			}
+
+			// fill out the edges array
+			for ( let i = 0; i < count; i ++ ) {
+
+				const edge = edges[ start + i ];
+				const offset = i * edgeStructStride;
+				edge.start.toArray( edgeBufferData, offset );
+				edge.end.toArray( edgeBufferData, offset + 3 );
+				edgeBufferDataU32[ offset + 6 ] = i;
+
+			}
+
+			edgeBufferAttribute.needsUpdate = true;
+
+			// clear the pairs counts & overlaps pointers
+			zeroOutKernel.target = triEdgePairsCountAttribute;
+			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+
+			zeroOutKernel.target = bufferPointersAttribute;
+			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+
+			zeroOutKernel.target = overflowFlagAttribute;
+			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
+
+			// accumulate potential triangle-edge overlap pairs
+			edgePairsKernel.edgesToProcess = count;
+			renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( count ) );
+
+			const dispatchSize = edgeOverlapsKernel.getDispatchSize( triEdgePairsAttribute.count )[ 0 ];
+			const dispatchStepSize = Math.min( dispatchSize, MAX_DISPATCH_SIZE );
+
+			// run dispatches for all overlaps
+			for ( let i = 0; i < dispatchSize; i += dispatchStepSize ) {
+
+				renderer.compute( edgeOverlapsKernel.kernel, [ dispatchStepSize, 1, 1 ] );
+
+			}
+
+			const [ overlaps, bufferPointers, overflowBuffer ] = await Promise.all( [
+				renderer.getArrayBufferAsync( overlapsAttribute ),
+				renderer.getArrayBufferAsync( bufferPointersAttribute ),
+				renderer.getArrayBufferAsync( overflowFlagAttribute ),
+			] );
+
+			if ( signal?.isAborted ) {
+
+				return;
+
+			}
+
+			const overflow = new Uint32Array( overflowBuffer )[ 0 ];
+			if ( overflow > 0 ) {
+
+				if ( count === 1 ) {
+
+					console.error( `ProjectionGenerator: Overlaps buffer insufficient size to store all segments. Please report to three-edge-projection.` );
+
+				} else {
+
+					// split the job in half and re-queue both halves
+					const half = Math.ceil( count / 2 );
+					promises.push( jobQueue.add( runJob, [ start, half ] ) );
+					promises.push( jobQueue.add( runJob, [ start + half, count - half ] ) );
+					return;
+
+				}
+
+			}
+
+			// read buffers
+			const overlapsF32 = new Float32Array( overlaps );
+			const overlapsU32 = new Uint32Array( overlaps );
+			const bufferPointersU32 = new Uint32Array( bufferPointers );
+			const stride = overlapRecordStruct.getLength();
+
+			// push the overlaps
+			for ( let oi = 0, ol = bufferPointersU32[ 0 ]; oi < ol; oi ++ ) {
+
+				const index = oi * stride;
+				const ei = start + overlapsU32[ index + 0 ];
+				const t0 = overlapsF32[ index + 1 ];
+				const t1 = overlapsF32[ index + 2 ];
+
+				if ( ! intervalsByEdge.has( ei ) ) {
+
+					intervalsByEdge.set( ei, [] );
+
+				}
+
+				insertOverlap( [ t0, t1 ], intervalsByEdge.get( ei ) );
+
+			}
+
+			progress += count;
+
+			// fire progress
+			if ( onProgress ) {
+
+				onProgress( progress / edges.length );
+
+			}
+
+		};
+
+		// enqueue initial jobs
 		for ( let e = 0; e < edges.length; e += batchCapacity ) {
 
-			queue.push( { start: e, count: Math.min( batchCapacity, edges.length - e ) } );
+			promises.push( jobQueue.add( runJob, [ e, Math.min( batchCapacity, edges.length - e ) ] ) );
 
 		}
 
-		while ( queue.length > 0 ) {
+		// drain — sequential iteration naturally picks up overflow sub-jobs added to promises
+		for ( let i = 0; i < promises.length; i ++ ) {
 
-			const { start, count } = queue.shift();
-
-			await new Promise( resolve => requestAnimationFrame( resolve ) );
-
-			// run the data read back asynchronously so we can prepare and issue the subsequent
-			// compute while we wait for this data.
-			promises.push( ( async () => {
-
-				if ( signal?.isAborted ) {
-
-					return;
-
-				}
-
-				// fill out the edges array
-				for ( let i = 0; i < count; i ++ ) {
-
-					const edge = edges[ start + i ];
-					const offset = i * edgeStructStride;
-					edge.start.toArray( edgeBufferData, offset );
-					edge.end.toArray( edgeBufferData, offset + 3 );
-					edgeBufferDataU32[ offset + 6 ] = i;
-
-				}
-
-				edgeBufferAttribute.needsUpdate = true;
-
-				// clear the pairs counts & overlaps pointers
-				zeroOutKernel.target = triEdgePairsCountAttribute;
-				renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
-
-				zeroOutKernel.target = bufferPointersAttribute;
-				renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
-
-				zeroOutKernel.target = overflowFlagAttribute;
-				renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
-
-				// accumulate potential triangle-edge overlap pairs
-				edgePairsKernel.edgesToProcess = count;
-				renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( count ) );
-
-				const dispatchSize = edgeOverlapsKernel.getDispatchSize( triEdgePairsAttribute.count )[ 0 ];
-				const dispatchStepSize = Math.min( dispatchSize, MAX_DISPATCH_SIZE );
-
-				// run dispatches for all overlaps
-				for ( let i = 0; i < dispatchSize; i += dispatchStepSize ) {
-
-					renderer.compute( edgeOverlapsKernel.kernel, [ dispatchStepSize, 1, 1 ] );
-
-				}
-
-				const local_start = start;
-				const local_count = count;
-				const [ overlaps, bufferPointers, overflowBuffer ] = await Promise.all( [
-					renderer.getArrayBufferAsync( overlapsAttribute ),
-					renderer.getArrayBufferAsync( bufferPointersAttribute ),
-					renderer.getArrayBufferAsync( overflowFlagAttribute ),
-				] );
-
-				if ( signal?.isAborted ) {
-
-					return;
-
-				}
-
-				const overflow = new Uint32Array( overflowBuffer )[ 0 ];
-				if ( overflow > 0 ) {
-
-					if ( count === 1 ) {
-
-						console.error( `ProjectionGenerator: Overlaps buffer insufficient size to store all segments. Please report to three-edge-projection.` );
-
-					} else {
-
-						// split the job in half and push both halves back to the front of the queue
-						const half = Math.ceil( count / 2 );
-						queue.push( { start: start + half, count: count - half } );
-						queue.push( { start, count: half } );
-						return;
-
-					}
-
-				}
-
-				// read buffers
-				const overlapsF32 = new Float32Array( overlaps );
-				const overlapsU32 = new Uint32Array( overlaps );
-				const bufferPointersU32 = new Uint32Array( bufferPointers );
-				const stride = overlapRecordStruct.getLength();
-
-				// push the overlaps
-				for ( let oi = 0, ol = bufferPointersU32[ 0 ]; oi < ol; oi ++ ) {
-
-					const index = oi * stride;
-					const ei = local_start + overlapsU32[ index + 0 ];
-					const t0 = overlapsF32[ index + 1 ];
-					const t1 = overlapsF32[ index + 2 ];
-
-					if ( ! intervalsByEdge.has( ei ) ) {
-
-						intervalsByEdge.set( ei, [] );
-
-					}
-
-					insertOverlap( [ t0, t1 ], intervalsByEdge.get( ei ) );
-
-				}
-
-				progress += local_count;
-
-				// fire progress
-				if ( onProgress ) {
-
-					onProgress( progress / edges.length );
-
-				}
-
-			} )() );
+			await promises[ i ];
 
 		}
-
-		// wait for all the data read back to finish
-		await Promise.all( promises );
 
 		signal?.throwIfAborted();
 
@@ -294,6 +288,100 @@ export class ProjectionGenerator {
 		}
 
 		return collector;
+
+	}
+
+}
+
+class JobQueue {
+
+	constructor() {
+
+		this.queue = [];
+		this.maxJobs = 10;
+		this.currJobs = 0;
+		this._scheduled = false;
+
+	}
+
+	add( cb, args ) {
+
+		return new Promise( ( resolve, reject ) => {
+
+			this.queue.push( {
+				run: () => {
+
+					const res = cb( ...args );
+					res
+						.then( resolve )
+						.catch( reject );
+
+					return res;
+
+				},
+				reject,
+			} );
+			this.scheduleRun();
+
+		} );
+
+	}
+
+	cancelAll() {
+
+		const { queue } = this;
+		while ( queue.length > 0 ) {
+
+			const entry = queue.shift();
+			entry.reject( new Error( 'JobQueue: cancelled' ) );
+
+		}
+
+	}
+
+	async runJobs() {
+
+		const { queue } = this;
+		while ( this.currJobs < this.maxJobs ) {
+
+			if ( queue.length === 0 ) {
+
+				return;
+
+			}
+
+			this.currJobs ++;
+
+			await nextFrame();
+
+			const entry = queue.shift();
+			entry.run()
+				.finally( () => {
+
+					this.currJobs --;
+					this.scheduleRun();
+
+				} );
+
+		}
+
+	}
+
+	scheduleRun() {
+
+		if ( this._scheduled ) {
+
+			return;
+
+		}
+
+		this._scheduled = true;
+		requestAnimationFrame( async () => {
+
+			await this.runJobs();
+			this._scheduled = false;
+
+		} );
 
 	}
 
