@@ -72,6 +72,7 @@ class EdgeSet {
 	constructor() {
 
 		this.meshToSegments = new Map();
+		this._rangeCache = null;
 
 	}
 
@@ -96,20 +97,20 @@ class EdgeSet {
 
 	getRangeForMesh( mesh ) {
 
-		let start = 0;
-		for ( const [ m, segs ] of this.meshToSegments ) {
+		if ( ! this._rangeCache ) {
 
-			if ( m === mesh ) {
+			this._rangeCache = new Map();
+			let start = 0;
+			for ( const [ m, segs ] of this.meshToSegments ) {
 
-				return { start: start * 2, count: segs.length * 2 };
+				this._rangeCache.set( m, { start: start * 2, count: segs.length * 2 } );
+				start += segs.length;
 
 			}
 
-			start += segs.length;
-
 		}
 
-		return null;
+		return this._rangeCache.get( mesh ) ?? null;
 
 	}
 
