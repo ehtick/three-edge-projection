@@ -183,6 +183,7 @@ async function updateEdges() {
 	const generator = new ProjectionGenerator( renderer );
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;
 
+	model.visible = true;
 	let input = [ model ];
 	if ( params.visibilityCullMeshes ) {
 
