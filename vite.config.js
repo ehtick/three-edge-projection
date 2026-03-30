@@ -6,6 +6,7 @@ export default {
 	root: './example/',
 	base: '',
 	build: {
+		target: 'es2022',
 		sourcemap: true,
 		outDir: './dist/',
 		minify: false,
