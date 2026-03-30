@@ -20,14 +20,6 @@ const edgeLineShapeStruct = new StructTypeNode( {
 	edgeIndex: 'uint',
 }, 'EdgeLineShape' );
 
-// Minimal result struct satisfying the shapecast interface.
-// We never set didHit = true, so no best-hit pruning occurs.
-const edgeOverlapResultStruct = new StructTypeNode( {
-	didHit: 'bool',
-	dist: 'float',
-	objectIndex: 'uint',
-}, 'EdgeOverlapResult' );
-
 // Extended transform struct that adds a per-object "side" field for back-face
 // culling. Values: 0 = DoubleSide (no cull), 1 = FrontSide, -1 = BackSide.
 const projectionTransformStruct = new StructTypeNode( {
@@ -117,7 +109,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		const { DOUBLE_SIDE, BACK_SIDE, DIST_THRESHOLD } = overlapConstants;
 
 		const intersectsBoundsFn = wgslTagFn/* wgsl */`
-			fn intersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct }, bestHit: ptr<function, ${ edgeOverlapResultStruct }> ) -> u32 {
+			fn intersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> u32 {
 
 				// TODO: a proper 3D Line / AABB check with the bottom of the bounds extended downward
 				// would be best here since we are getting some false positives.
@@ -181,7 +173,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		`;
 
 		const intersectRangeFn = wgslTagFn/* wgsl */`
-			fn traverseRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, result: ptr<function, ${ edgeOverlapResultStruct }> ) -> bool {
+			fn traverseRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32 ) -> bool {
 
 				var tri: ${ TriWGSL.struct };
 				var line: ${ LineWGSL.struct };
@@ -293,7 +285,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				}
 
-				return true;
+				return false;
 
 			}
 		`;
@@ -301,7 +293,6 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		const traversalFn = this.getShapecastFn( {
 			name: 'collectEdgeOverlaps',
 			shapeStruct: edgeLineShapeStruct,
-			resultStruct: edgeOverlapResultStruct,
 			intersectsBoundsFn,
 			intersectRangeFn,
 			transformShapeFn,
@@ -322,8 +313,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				shape.objectIndex = 0u;
 				shape.edgeIndex = edgeIndex;
 
-				var result: ${ edgeOverlapResultStruct };
-				${ traversalFn }( shape, &result );
+				${ traversalFn }( shape );
 
 			}
 		`;
