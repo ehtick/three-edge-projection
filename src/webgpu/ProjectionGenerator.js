@@ -122,6 +122,8 @@ export class ProjectionGenerator {
 		const edgeStructStride = edgeStruct.getLength();
 
 		const jobQueue = new JobQueue();
+		const onAbort = () => jobQueue.cancelAll();
+		signal?.addEventListener( 'abort', onAbort );
 
 		const runJob = async ( start, count ) => {
 

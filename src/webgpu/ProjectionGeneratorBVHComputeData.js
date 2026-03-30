@@ -29,8 +29,7 @@ const edgeOverlapResultStruct = new StructTypeNode( {
 }, 'EdgeOverlapResult' );
 
 // Extended transform struct that adds a per-object "side" field for back-face
-// culling. Layout matches the base struct; "side" reuses the _alignment0 slot.
-// Values: 0 = DoubleSide (no cull), 1 = FrontSide, -1 = BackSide.
+// culling. Values: 0 = DoubleSide (no cull), 1 = FrontSide, -1 = BackSide.
 const projectionTransformStruct = new StructTypeNode( {
 	matrixWorld: 'mat4x4f',
 	inverseMatrixWorld: 'mat4x4f',
