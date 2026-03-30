@@ -29,7 +29,7 @@ export class ProjectionGenerator {
 
 		this.renderer = renderer;
 		this.angleThreshold = 50;
-		this.batchSize = 10000;
+		this.batchSize = 100000;
 		this.includeIntersectionEdges = true;
 
 	}
