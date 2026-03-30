@@ -268,11 +268,9 @@ export class BVHComputeData {
 		}
 
 		const {
-			prefix = 'bvh_',
 			attributes = { position: 'vec4f' },
 		} = options;
 
-		this.prefix = prefix;
 		this.attributes = attributes;
 		this.bvh = bvh;
 
@@ -297,9 +295,9 @@ export class BVHComputeData {
 	getShapecastFn( options ) {
 
 		const {
-			name,
+			name = `bvh_${ Math.random().toString( 36 ).substring( 2, 7 ) }`,
 			shapeStruct,
-			resultStruct,
+			resultStruct = null,
 
 			boundsOrderFn = null,
 			intersectsBoundsFn,
@@ -309,13 +307,13 @@ export class BVHComputeData {
 		} = options;
 
 		const { storage } = this;
-		const { BVH_STACK_DEPTH, INFINITY } = constants;
+		const { BVH_STACK_DEPTH } = constants;
 
 		// handle optional functions
 		let transformResultSnippet = '';
 		if ( transformResultFn ) {
 
-			transformResultSnippet = wgslTagCode/* wgsl */`${ transformResultFn }( &bestHit, i );`;
+			transformResultSnippet = wgslTagCode/* wgsl */`${ transformResultFn }( bestHit, i );`;
 
 		}
 
@@ -341,9 +339,6 @@ export class BVHComputeData {
 
 			// returns a function with a snippet inserted for the leaf intersection test
 			return wgslTagCode/* wgsl */`
-				var bestHit: ${ resultStruct };
-				bestHit.didHit = false;
-				bestHit.dist = bestDist;
 
 				var pointer: i32 = 0;
 				var stack: array<u32, ${ BVH_STACK_DEPTH }>;
@@ -361,8 +356,7 @@ export class BVHComputeData {
 					let node = ${ storage.nodes }[ nodeIndex ];
 					pointer = pointer - 1;
 
-					var boundsHitDist: f32 = ${ intersectsBoundsFn }( shape, node.bounds );
-					if ( boundsHitDist < 0.0 || boundsHitDist > bestHit.dist ) {
+					if ( ${ intersectsBoundsFn }( shape, node.bounds, bestHit ) == 0u ) {
 
 						continue;
 
@@ -398,36 +392,32 @@ export class BVHComputeData {
 
 				}
 
-				return bestHit;
 			`;
 
 		};
 
 		const blasFn = wgslTagFn/* wgsl */`
 			// fn
-			fn ${ name }_blas( shape: ${ shapeStruct }, rootNodeIndex: u32, bestDist: f32 ) -> ${ resultStruct } {
+			fn ${ name }_blas( shape: ${ shapeStruct }, rootNodeIndex: u32, bestHit: ptr<function, ${ resultStruct }> ) -> bool {
 
+				var didHit = false;
 				${ getFnBody( wgslTagCode/* wgsl */`
 
-					let result = ${ intersectRangeFn }( shape, offset, count, bestDist );
-					if ( result.didHit && result.dist < bestHit.dist ) {
-
-						bestHit = result;
-
-					}
+					didHit = ${ intersectRangeFn }( shape, offset, count, bestHit ) || didHit;
 
 				` ) }
+
+				return didHit;
 
 			}
 		`;
 
 		const tlasFn = wgslTagFn/* wgsl */`
 			// fn
-			fn ${ name }( shape: ${ shapeStruct } ) -> ${ resultStruct } {
+			fn ${ name }( shape: ${ shapeStruct }, bestHit: ptr<function, ${ resultStruct }> ) -> bool {
 
-				let bestDist = ${ INFINITY };
-				let rootNodeIndex = 0u;
-
+				const rootNodeIndex = 0u;
+				var didHit = false;
 				${ getFnBody( wgslTagCode/* wgsl */`
 
 					for ( var i = offset; i < offset + count; i ++ ) {
@@ -442,13 +432,13 @@ export class BVHComputeData {
 						// Transform shape into object local space
 						var localShape = shape;
 						${ transformShapeSnippet }
-						let blasHit = ${ blasFn( { shape: 'localShape', rootNodeIndex: 'transform.nodeOffset', bestDist: 'bestHit.dist' } ) };
-						if ( blasHit.didHit && blasHit.dist < bestHit.dist ) {
 
-							bestHit = blasHit;
+						if ( ${ blasFn }( localShape, transform.nodeOffset, bestHit ) ) {
+
 							bestHit.objectIndex = i;
-
 							${ transformResultSnippet }
+
+							didHit = true;
 
 						}
 
@@ -456,8 +446,13 @@ export class BVHComputeData {
 
 				` ) }
 
+				return didHit;
+
 			}
 		`;
+
+		tlasFn.outputType = resultStruct;
+		tlasFn.functionName = name;
 
 		return tlasFn;
 
@@ -466,7 +461,7 @@ export class BVHComputeData {
 	update() {
 
 		const self = this;
-		const { attributes, structs, prefix, bvh } = this;
+		const { attributes, structs, bvh } = this;
 
 		// collect the BVHs
 		const bvhInfo = [];
@@ -531,7 +526,7 @@ export class BVHComputeData {
 		attributesBufferLength = Math.max( attributesBufferLength, 2 );
 
 		// construct the attribute struct
-		const attributeStruct = new StructTypeNode( attributes, `${ prefix }GeometryStruct` );
+		const attributeStruct = new StructTypeNode( attributes, 'bvh_GeometryStruct' );
 
 		// write the geometry buffer attributes & bvh data
 		let attributesOffset = 0;
@@ -579,11 +574,11 @@ export class BVHComputeData {
 		// if itemSize for StorageBufferAttribute == arraySize,
 		// then buffer is treated not as array of structs, but as a single struct
 		// And that breaks code. For now itemSize = 1 does not seem to break anything
-		const bvhNodesStorage = storage( new StorageBufferAttribute( new Uint32Array( bvhNodesBuffer ), 1 ), bvhNodeStruct ).toReadOnly().setName( `${ prefix }nodes` );
+		const bvhNodesStorage = storage( new StorageBufferAttribute( new Uint32Array( bvhNodesBuffer ), 1 ), bvhNodeStruct ).toReadOnly().setName( 'bvh_nodes' );
 		const transformsBuffer = new StorageBufferAttribute( new Uint32Array( transformArrayBuffer ), 1 );
-		const transformsStorage = storage( transformsBuffer, structs.transform ).toReadOnly().setName( `${ prefix }transforms` );
-		const indexStorage = storage( new StorageBufferAttribute( indexBuffer, 1 ), 'uint' ).toReadOnly().setName( `${ prefix }index` );
-		const attributesStorage = storage( new StorageBufferAttribute( new Uint32Array( attributesBuffer ), attributeStruct.getLength() ), attributeStruct ).toReadOnly().setName( `${ prefix }attributes` );
+		const transformsStorage = storage( transformsBuffer, structs.transform ).toReadOnly().setName( 'bvh_transforms' );
+		const indexStorage = storage( new StorageBufferAttribute( indexBuffer, 1 ), 'uint' ).toReadOnly().setName( 'bvh_index' );
+		const attributesStorage = storage( new StorageBufferAttribute( new Uint32Array( attributesBuffer ), attributeStruct.getLength() ), attributeStruct ).toReadOnly().setName( 'bvh_attributes' );
 
 		this.storage.transforms = transformsStorage;
 		this.storage.nodes = bvhNodesStorage;
@@ -787,14 +782,14 @@ export class BVHComputeData {
 
 	_initFns() {
 
-		const { storage, structs, fns, prefix } = this;
+		const { storage, structs, fns } = this;
 
 		// raycast first hit
 		const scratchRayScalar = wgsl( /* wgsl */`
-			var<private> ${ prefix }rayScalar = 1.0;
+			var<private> bvh_rayScalar = 1.0;
 		` );
 		fns.raycastFirstHit = this.getShapecastFn( {
-			name: prefix + 'RaycastFirstHit',
+			name: 'bvh_RaycastFirstHit',
 			shapeStruct: rayStruct,
 			resultStruct: intersectionResultStruct,
 
@@ -808,7 +803,7 @@ export class BVHComputeData {
 			intersectsBoundsFn: wgslTagFn/* wgsl */`
 				${ [ scratchRayScalar ] }
 
-				fn rayIntersectsBounds( ray: ${ rayStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> f32 {
+				fn rayIntersectsBounds( ray: ${ rayStruct }, bounds: ${ bvhNodeBoundsStruct }, result: ptr<function, ${ intersectionResultStruct }> ) -> u32 {
 
 					let boundsMin = vec3( bounds.min[0], bounds.min[1], bounds.min[2] );
 					let boundsMax = vec3( bounds.max[0], bounds.max[1], bounds.max[2] );
@@ -833,13 +828,17 @@ export class BVHComputeData {
 					let t1 = min( min( tMaxHit.x, tMaxHit.y ), tMaxHit.z );
 
 					let dist = max( t0, 0.0 );
-					if ( t1 >= dist ) {
+					if ( t1 < dist ) {
 
-						return dist * ${ prefix }rayScalar;
+						return 0u;
+
+					} else if ( result.didHit && dist * bvh_rayScalar >= result.dist ) {
+
+						return 0u;
 
 					} else {
 
-						return - 1.0;
+						return 1u;
 
 					}
 
@@ -849,12 +848,9 @@ export class BVHComputeData {
 			intersectRangeFn: wgslTagFn/* wgsl */`
 				${ [ scratchRayScalar ] }
 
-				fn intersectRange( ray: ${ rayStruct }, offset: u32, count: u32, bestDist: f32 ) -> ${ intersectionResultStruct } {
+				fn intersectRange( ray: ${ rayStruct }, offset: u32, count: u32, result: ptr<function, ${ intersectionResultStruct }> ) -> bool {
 
-					var bestHit: ${ intersectionResultStruct };
-					bestHit.didHit = false;
-					bestHit.dist = bestDist;
-
+					var didHit = false;
 					for ( var ti = offset; ti < offset + count; ti = ti + 1u ) {
 
 						let i0 = ${ storage.index }[ ti * 3u ];
@@ -866,17 +862,23 @@ export class BVHComputeData {
 						let c = ${ storage.attributes }[ i2 ].position.xyz;
 
 						var triResult = ${ intersectsTriangle }( ray, a, b, c );
-						triResult.dist *= ${ prefix }rayScalar;
-						if ( triResult.didHit && triResult.dist < bestHit.dist ) {
+						triResult.dist *= bvh_rayScalar;
+						if ( triResult.didHit && ( ! result.didHit || triResult.dist < result.dist ) ) {
 
-							bestHit = triResult;
-							bestHit.indices = vec4u( i0, i1, i2, ti );
+							result.didHit = true;
+							result.dist = triResult.dist;
+							result.normal = triResult.normal;
+							result.side = triResult.side;
+							result.barycoord = triResult.barycoord;
+							result.indices = vec4u( i0, i1, i2, ti );
+
+							didHit = true;
 
 						}
 
 					}
 
-					return bestHit;
+					return didHit;
 
 				}
 			`,
@@ -891,7 +893,7 @@ export class BVHComputeData {
 
 					let len = length( ray.direction );
 					ray.direction /= len;
-					${ prefix }rayScalar = 1.0 / len;
+					bvh_rayScalar = 1.0 / len;
 
 				}
 			`,
@@ -915,7 +917,7 @@ export class BVHComputeData {
 			} ).join( '\n' );
 		fns.sampleTrianglePoint = wgslTagFn/* wgsl */`
 			// fn
-			fn ${ prefix }sampleTrianglePoint( barycoord: vec3f, indices: vec3u ) -> ${ structs.attributes } {
+			fn bvh_sampleTrianglePoint( barycoord: vec3f, indices: vec3u ) -> ${ structs.attributes } {
 
 				var result: ${ structs.attributes };
 				var a0 = ${ storage.attributes }[ indices.x ];

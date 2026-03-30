@@ -117,7 +117,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		const { DOUBLE_SIDE, BACK_SIDE, DIST_THRESHOLD } = overlapConstants;
 
 		const intersectsBoundsFn = wgslTagFn/* wgsl */`
-			fn intersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> f32 {
+			fn intersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct }, bestHit: ptr<function, ${ edgeOverlapResultStruct }> ) -> u32 {
 
 				// TODO: a proper 3D Line / AABB check with the bottom of the bounds extended downward
 				// would be best here since we are getting some false positives.
@@ -131,7 +131,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				// Y-cull: bounds entirely below the line
 				if ( aabbMax.y <= min( shape.worldStart.y, shape.worldEnd.y ) ) {
 
-					return - 1.0;
+					return 0u;
 
 				}
 
@@ -145,7 +145,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					aabbMax.z < lineMinZ || aabbMin.z > lineMaxZ
 				) {
 
-					return - 1.0;
+					return 0u;
 
 				}
 
@@ -162,11 +162,11 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				if ( abs( aabbCenterProj - segProj ) > aabbHalfProj ) {
 
-					return - 1.0;
+					return 0u;
 
 				}
 
-				return 0.0;
+				return 1u;
 
 			}
 		`;
@@ -181,11 +181,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 		`;
 
 		const intersectRangeFn = wgslTagFn/* wgsl */`
-			fn traverseRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, bestDist: f32 ) -> ${ edgeOverlapResultStruct } {
-
-				var result: ${ edgeOverlapResultStruct };
-				result.didHit = false;
-				result.dist = bestDist;
+			fn traverseRange( shape: ${ edgeLineShapeStruct }, offset: u32, count: u32, result: ptr<function, ${ edgeOverlapResultStruct }> ) -> bool {
 
 				var tri: ${ TriWGSL.struct };
 				var line: ${ LineWGSL.struct };
@@ -297,7 +293,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 				}
 
-				return result;
+				return true;
 
 			}
 		`;
@@ -325,7 +321,9 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				);
 				shape.objectIndex = 0u;
 				shape.edgeIndex = edgeIndex;
-				${ traversalFn }( shape );
+
+				var result: ${ edgeOverlapResultStruct };
+				${ traversalFn }( shape, &result );
 
 			}
 		`;
