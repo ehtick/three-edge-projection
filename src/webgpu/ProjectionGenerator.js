@@ -31,7 +31,7 @@ export class ProjectionGenerator {
 
 		this.renderer = renderer;
 		this.angleThreshold = 50;
-		this.batchSize = 50000;
+		this.batchSize = 10000;
 		this.includeIntersectionEdges = true;
 
 	}
@@ -268,39 +268,26 @@ export class ProjectionGenerator {
 
 		signal?.throwIfAborted();
 
+		console.time('COLLECT')
 		// push all edges to the "results" object
 		const collector = new ProjectionResult();
-		let visibleStart = 0;
-		let hiddenStart = 0;
 		for ( let i = 0; i < edges.length; i ++ ) {
 
-			// save the ranges for the edges associated with each mesh
 			const mesh = edges[ i ].mesh;
-			if ( ! collector.visibleEdges.meshToRange.has( mesh ) ) {
+			if ( ! collector.visibleEdges.meshToSegments.has( mesh ) ) {
 
-				collector.visibleEdges.meshToRange.set( mesh, {
-					start: visibleStart,
-					count: 0,
-				} );
-
-				collector.hiddenEdges.meshToRange.set( mesh, {
-					start: hiddenStart,
-					count: 0,
-				} );
+				collector.visibleEdges.meshToSegments.set( mesh, [] );
+				collector.hiddenEdges.meshToSegments.set( mesh, [] );
 
 			}
 
 			const intervals = intervalsByEdge.get( i ) || [];
-			const newVisibleCount = overlapsToLines( edges[ i ], intervals, false, collector.visibleEdges.segments );
-			const newHiddenCount = overlapsToLines( edges[ i ], intervals, true, collector.hiddenEdges.segments );
-
-			collector.visibleEdges.meshToRange.get( mesh ).count += newVisibleCount;
-			collector.hiddenEdges.meshToRange.get( mesh ).count += newHiddenCount;
-
-			visibleStart += newVisibleCount;
-			hiddenStart += newHiddenCount;
+			overlapsToLines( edges[ i ], intervals, false, collector.visibleEdges.meshToSegments.get( mesh ) );
+			overlapsToLines( edges[ i ], intervals, true, collector.hiddenEdges.meshToSegments.get( mesh ) );
 
 		}
+
+		console.timeEnd('COLLECT')
 
 		return collector;
 

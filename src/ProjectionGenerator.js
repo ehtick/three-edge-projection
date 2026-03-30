@@ -71,41 +71,45 @@ class EdgeSet {
 
 	constructor() {
 
-		this.segments = [];
-		this.meshToRange = new WeakMap();
+		this.meshToSegments = new Map();
 
 	}
 
 	getLineGeometry( meshes = null ) {
 
-		if ( meshes === null ) {
+		const activeMeshes = meshes !== null ? meshes : Array.from( this.meshToSegments.keys() );
+		const segments = [];
+		for ( let i = 0; i < activeMeshes.length; i ++ ) {
 
-			return toLineGeometry( this.segments );
+			const segs = this.meshToSegments.get( activeMeshes[ i ] );
+			if ( segs ) {
 
-		} else {
+				for ( let j = 0; j < segs.length; j ++ ) segments.push( segs[ j ] );
 
-			const ranges = meshes
-				.map( m => this.meshToRange.get( m ) )
-				.filter( r => ! ! r );
-
-			return toLineGeometry( this.segments, ranges );
+			}
 
 		}
+
+		return toLineGeometry( segments );
 
 	}
 
 	getRangeForMesh( mesh ) {
 
-		const range = this.meshToRange.get( mesh );
-		if ( ! range ) {
+		let start = 0;
+		for ( const [ m, segs ] of this.meshToSegments ) {
 
-			return null;
+			if ( m === mesh ) {
 
-		} else {
+				return { start: start * 2, count: segs.length * 2 };
 
-			return { start: range.start * 2, count: range.count * 2 };
+			}
+
+			start += segs.length;
 
 		}
+
+		return null;
 
 	}
 
@@ -150,8 +154,6 @@ class ProjectedEdgeCollector {
 	*addEdgesGenerator( edges, options = {} ) {
 
 		const { meshes, bvhs, iterationTime } = this;
-		const visibleEdges = this.result.visibleEdges.segments;
-		const hiddenEdges = this.result.hiddenEdges.segments;
 		let time = performance.now();
 		for ( let i = 0; i < meshes.length; i ++ ) {
 
@@ -314,8 +316,6 @@ class ProjectedEdgeCollector {
 			}
 
 			// construct the projections
-			let visibleStart = visibleEdges.length;
-			let hiddenStart = hiddenEdges.length;
 			const { result } = this;
 			for ( let i = 0; i < edges.length; i ++ ) {
 
@@ -331,20 +331,15 @@ class ProjectedEdgeCollector {
 				const mesh = line.mesh;
 				const hiddenOverlaps = hiddenOverlapMap[ i ];
 
-				if ( ! result.visibleEdges.meshToRange.has( mesh ) ) {
+				if ( ! result.visibleEdges.meshToSegments.has( mesh ) ) {
 
-					result.visibleEdges.meshToRange.set( mesh, { start: visibleStart, count: 0 } );
-					result.hiddenEdges.meshToRange.set( mesh, { start: hiddenStart, count: 0 } );
+					result.visibleEdges.meshToSegments.set( mesh, [] );
+					result.hiddenEdges.meshToSegments.set( mesh, [] );
 
 				}
 
-				const newVisibleCount = overlapsToLines( line, hiddenOverlaps, false, visibleEdges );
-				const newHiddenCount = overlapsToLines( line, hiddenOverlaps, true, hiddenEdges );
-
-				result.visibleEdges.meshToRange.get( mesh ).count += newVisibleCount;
-				result.hiddenEdges.meshToRange.get( mesh ).count += newHiddenCount;
-				visibleStart += newVisibleCount;
-				hiddenStart += newHiddenCount;
+				overlapsToLines( line, hiddenOverlaps, false, result.visibleEdges.meshToSegments.get( mesh ) );
+				overlapsToLines( line, hiddenOverlaps, true, result.hiddenEdges.meshToSegments.get( mesh ) );
 
 			}
 
