@@ -22,6 +22,16 @@ Edge projection based on [three-mesh-bvh](https://github.com/gkjohnson/three-mes
 
 [Planar intersection](https://gkjohnson.github.io/three-edge-projection/example/dist/planarIntersection.html)
 
+### WebGPU
+
+[Rover edge projection](https://gkjohnson.github.io/three-edge-projection/example/dist/edgeProjectionWebGPU.html)
+
+# Installation
+
+```
+npm install github:@gkjohnson/three-edge-projection
+```
+
 # Use
 
 **Generator**
@@ -67,15 +77,29 @@ scene.add( mesh );
 
 # API
 
-## ProjectionGenerator
+## ProjectionEdgeSet
 
-### .sortEdges
+### toLineGeometry
 
 ```js
-sortEdges = true : Boolean
+toLineGeometry( meshes = null: Array<Mesh> ): BufferGeometry
 ```
 
-Whether to sort edges along the Y axis before iterating over the edges.
+Returns a new BufferGeometry representing the edges.
+
+Pass a list of meshes in to extract edges from a specific subset of meshes in the given order. Returns all edges if null.
+
+### getRangeForMesh
+
+```js
+getRangeForMesh( mesh: Mesh ): { start: number, count: number }
+```
+
+Returns the range of vertices associated with the given mesh in the geometry returned from [toLineGeometry](#tolinegeometry). The `start` value is only relevant if lines are generated with the default order and set of meshes.
+
+Can be used to add extra vertex attributes in a geometry associated with a specific subrange of the geometry.
+
+## ProjectionGenerator
 
 ### .iterationTime
 
@@ -107,11 +131,11 @@ Whether to generate edges representing the intersections between triangles.
 *generate(
 	geometry: Object3D | BufferGeometry | Array<Object3D>,
 	options: {
-		onProgress: ( message: string ) => void,
+		onProgress: ( percent: number, message: string ) => void,
 	}
 ): {
-	getVisibleLineGeometry(): BufferGeometry,
-	getHiddenLineGeometry(): BufferGeometry,
+	visibleEdges: ProjectionEdgeSet,
+	hiddenEdges: ProjectionEdgeSet,
 }
 ```
 
@@ -120,16 +144,16 @@ Generate the edge geometry using a generator function.
 ### .generateAsync
 
 ```js
-generateAsync(
+async generateAsync(
 	geometry: Object3D | BufferGeometry | Array<Object3D>,
 	options: {
-		onProgress: ( message: string ) => void,
+		onProgress: ( percent: number, message: string ) => void,
 		signal: AbortSignal,
 	}
-): Promise<{
-	getVisibleLineGeometry(): BufferGeometry,
-	getHiddenLineGeometry(): BufferGeometry,
-}>
+): {
+	visibleEdges: ProjectionEdgeSet,
+	hiddenEdges: ProjectionEdgeSet,
+}
 ```
 
 Generate the geometry with a promise-style API.
@@ -214,13 +238,13 @@ Generate the geometry using a generator function.
 ### .generateAsync
 
 ```js
-generateAsync(
+async generateAsync(
 	geometry : BufferGeometry,
 	options : {
 		onProgress: ( percent : Number ) => void,
 		signal: AbortSignal,
 	}
-) : Promise<BufferGeometry>
+): BufferGeometry
 ```
 
 Generate the silhouette geometry with a promise-style API.
@@ -242,3 +266,64 @@ generate( geometry : MeshBVH | BufferGeometry ) : BufferGeometry
 ```
 
 Generates a geometry of the resulting line segments from the planar intersection.
+
+# WebGPU API
+
+Classes provided by the `three-edge-projection/webgpu` export and rely on three.js' WebGPURenderer. The below functions and settings mirror the functionality of those defined above.
+
+## ProjectionGenerator
+
+### .angleThreshold
+
+```js
+angleThreshold = 50: number
+```
+
+### .includeIntersectionEdges
+
+```js
+includeIntersectionEdges = true: boolean
+```
+
+### .batchSize
+
+```js
+batchSize = 100000: number
+```
+
+The number of edges to process in one compute kernel pass. Larger values can process faster but may cause internal buffers to overflow, resulting in extra kernel executions, taking more time.
+
+### constructor
+
+```js
+constructor( renderer: WebGPURenderer )
+```
+
+### .generate
+
+```js
+async generate(
+	geometry: Object3D | BufferGeometry | Array<Object3D>,
+	options: {
+		onProgress: ( percent: number ) => void,
+		signal: AbortSignal,
+	}
+): {
+	visibleEdges: ProjectionEdgeSet,
+	hiddenEdges: ProjectionEdgeSet,
+}
+```
+
+## MeshVisibilityCuller
+
+### constructor
+
+```js
+constructor( renderer: WebGPURenderer )
+```
+
+### .cull
+
+```js
+async cull( object: Object3D | Array<Object3D> ): Array<Object3D>
+```

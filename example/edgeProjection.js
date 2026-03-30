@@ -232,7 +232,7 @@ async function* updateEdges( runTime = 30 ) {
 	}
 
 	const collection = yield* generator.generate( input, {
-		onProgress: ( msg, tot, edges ) => {
+		onProgress: ( tot, msg, edges ) => {
 
 			outputContainer.innerText = msg;
 			if ( tot ) outputContainer.innerText += ' ' + ( 100 * tot ).toFixed( 1 ) + '%';
@@ -240,7 +240,7 @@ async function* updateEdges( runTime = 30 ) {
 			if ( edges ) {
 
 				projection.geometry.dispose();
-				projection.geometry = edges.getVisibleLineGeometry();
+				projection.geometry = edges.visibleEdges.getLineGeometry();
 				needsRender = true;
 
 			}
@@ -248,10 +248,10 @@ async function* updateEdges( runTime = 30 ) {
 		},
 	} );
 	drawThroughProjection.geometry.dispose();
-	drawThroughProjection.geometry = collection.getHiddenLineGeometry();
+	drawThroughProjection.geometry = collection.hiddenEdges.getLineGeometry();
 
 	projection.geometry.dispose();
-	projection.geometry = collection.getVisibleLineGeometry();
+	projection.geometry = collection.visibleEdges.getLineGeometry();
 	const geometry = projection.geometry;
 	const trimTime = window.performance.now() - timeStart;
 

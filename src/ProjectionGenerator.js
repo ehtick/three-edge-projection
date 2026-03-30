@@ -3,11 +3,8 @@ import {
 	Vector3,
 	BufferAttribute,
 	Mesh,
-	Line3,
-	Box3,
-	Raycaster,
 } from 'three';
-import { MeshBVH, SAH, acceleratedRaycast } from 'three-mesh-bvh';
+import { MeshBVH, SAH } from 'three-mesh-bvh';
 import { isYProjectedLineDegenerate } from './utils/triangleLineUtils.js';
 import { overlapsToLines } from './utils/overlapUtils.js';
 import { EdgeGenerator } from './EdgeGenerator.js';
@@ -15,40 +12,103 @@ import { LineObjectsBVH } from './utils/LineObjectsBVH.js';
 import { bvhcastEdges } from './utils/bvhcastEdges.js';
 import { getAllMeshes } from './utils/getAllMeshes.js';
 
-// these shared variables are not used across "yield" boundaries in the
-// generator so there's no risk of overwriting another tasks data
 const UP_VECTOR = /* @__PURE__ */ new Vector3( 0, 1, 0 );
 
-const _raycaster = /* @__PURE__ */ new Raycaster();
-const _line = /* @__PURE__ */ new Line3();
-const _line0 = /* @__PURE__ */ new Line3();
-const _line1 = /* @__PURE__ */ new Line3();
-const _box = /* @__PURE__ */ new Box3();
-const _point0 = /* @__PURE__ */ new Vector3();
-const _point1 = /* @__PURE__ */ new Vector3();
-const _dir0 = /* @__PURE__ */ new Vector3();
-const _dir1 = /* @__PURE__ */ new Vector3();
+function toLineGeometry( edges, ranges = null ) {
 
-function toLineGeometry( edges ) {
+	// if no ranges provided, treat the whole array as one range
+	const activeRanges = ranges ?? [ { start: 0, count: edges.length } ];
 
-	const edgeArray = new Float32Array( edges.length * 6 );
+	let totalCount = 0;
+	for ( let i = 0; i < activeRanges.length; i ++ ) {
+
+		totalCount += activeRanges[ i ].count;
+
+	}
+
+	const edgeArray = new Float32Array( totalCount * 6 );
 	let c = 0;
-	for ( let i = 0, l = edges.length; i < l; i ++ ) {
+	for ( let r = 0; r < activeRanges.length; r ++ ) {
 
-		const line = edges[ i ];
-		edgeArray[ c ++ ] = line[ 0 ];
-		edgeArray[ c ++ ] = 0;
-		edgeArray[ c ++ ] = line[ 2 ];
-		edgeArray[ c ++ ] = line[ 3 ];
-		edgeArray[ c ++ ] = 0;
-		edgeArray[ c ++ ] = line[ 5 ];
+		const { start, count } = activeRanges[ r ];
+		for ( let i = start, l = start + count; i < l; i ++ ) {
+
+			const line = edges[ i ];
+			edgeArray[ c ++ ] = line[ 0 ];
+			edgeArray[ c ++ ] = 0;
+			edgeArray[ c ++ ] = line[ 2 ];
+			edgeArray[ c ++ ] = line[ 3 ];
+			edgeArray[ c ++ ] = 0;
+			edgeArray[ c ++ ] = line[ 5 ];
+
+		}
 
 	}
 
 	const edgeGeom = new BufferGeometry();
-	const edgeBuffer = new BufferAttribute( edgeArray, 3, true );
+	const edgeBuffer = new BufferAttribute( edgeArray, 3, false );
 	edgeGeom.setAttribute( 'position', edgeBuffer );
 	return edgeGeom;
+
+}
+
+class EdgeSet {
+
+	constructor() {
+
+		this.meshToSegments = new Map();
+		this._rangeCache = null;
+
+	}
+
+	getLineGeometry( meshes = null ) {
+
+		const activeMeshes = meshes !== null ? meshes : Array.from( this.meshToSegments.keys() );
+		const segments = [];
+		for ( let i = 0; i < activeMeshes.length; i ++ ) {
+
+			const segs = this.meshToSegments.get( activeMeshes[ i ] );
+			if ( segs ) {
+
+				for ( let j = 0; j < segs.length; j ++ ) segments.push( segs[ j ] );
+
+			}
+
+		}
+
+		return toLineGeometry( segments );
+
+	}
+
+	getRangeForMesh( mesh ) {
+
+		if ( ! this._rangeCache ) {
+
+			this._rangeCache = new Map();
+			let start = 0;
+			for ( const [ m, segs ] of this.meshToSegments ) {
+
+				this._rangeCache.set( m, { start: start * 2, count: segs.length * 2 } );
+				start += segs.length;
+
+			}
+
+		}
+
+		return this._rangeCache.get( mesh ) ?? null;
+
+	}
+
+}
+
+export class ProjectionResult {
+
+	constructor() {
+
+		this.visibleEdges = new EdgeSet();
+		this.hiddenEdges = new EdgeSet();
+
+	}
 
 }
 
@@ -58,30 +118,8 @@ class ProjectedEdgeCollector {
 
 		this.meshes = getAllMeshes( scene );
 		this.bvhs = new Map();
-		this.visibleEdges = [];
-		this.hiddenEdges = [];
+		this.result = new ProjectionResult();
 		this.iterationTime = 30;
-		this.lineIntersectionStrategy = false;
-
-	}
-
-	reset() {
-
-		this.visibleEdges.length = 0;
-		this.hiddenEdges.length = 0;
-
-	}
-
-	getVisibleLineGeometry() {
-
-		return toLineGeometry( this.visibleEdges );
-
-	}
-
-	getHiddenLineGeometry() {
-
-		return toLineGeometry( this.hiddenEdges );
-
 
 	}
 
@@ -100,7 +138,7 @@ class ProjectedEdgeCollector {
 	// all edges are expected to be in world coordinates
 	*addEdgesGenerator( edges, options = {} ) {
 
-		const { meshes, bvhs, visibleEdges, hiddenEdges, iterationTime } = this;
+		const { meshes, bvhs, iterationTime } = this;
 		let time = performance.now();
 		for ( let i = 0; i < meshes.length; i ++ ) {
 
@@ -133,152 +171,53 @@ class ProjectedEdgeCollector {
 		// construct bvh
 		const edgesBvh = new LineObjectsBVH( edges, { maxLeafSize: 2, strategy: SAH } );
 
-		if ( this.lineIntersectionStrategy ) {
+		time = performance.now();
+		for ( let m = 0; m < meshes.length; m ++ ) {
 
-			// TODO: use objects bvh for scene to accelerate raycasts
-			// TODO: cache inverse matrices to help speed things up
+			if ( performance.now() - time > iterationTime ) {
 
-			meshes.forEach( c => {
+				if ( options.onProgress ) {
 
-				c.geometry.boundsTree = bvhs.get( c.geometry );
-				c.raycast = acceleratedRaycast;
-
-			} );
-
-			const results = {};
-			time = performance.now();
-			for ( let i0 = 0, l = edgesBvh.lines.length; i0 < l; i0 ++ ) {
-
-				if ( performance.now() - time > iterationTime ) {
-
-					yield;
-					time = performance.now();
+					options.onProgress( m, meshes.length );
 
 				}
 
-				// get the projected line
-				const e0 = edgesBvh.lines[ i0 ];
-				_line0.copy( e0 );
-				_line0.start.y = 0;
-				_line0.end.y = 0;
-
-				// get the line direction
-				_line0.delta( _dir0 ).normalize();
-
-				// get the line bounds
-				_box.makeEmpty();
-				_box.expandByPoint( e0.start );
-				_box.expandByPoint( e0.end );
-
-				// expand the size
-				_box.max.y = 1e5;
-				_box.min.y = - 1e5;
-
-				// reset the splits and
-				edgesBvh.shapecast( {
-
-					intersectsBounds( b ) {
-
-						return _box.intersectsBox( b );
-
-					},
-
-					intersectsRange( offset, count ) {
-
-						for ( let i1 = offset, l = offset + count; i1 < l; i1 ++ ) {
-
-							if ( i1 <= i0 ) {
-
-								continue;
-
-							}
-
-							if ( ! results[ i0 ] ) results[ i0 ] = [];
-							if ( ! results[ i1 ] ) results[ i1 ] = [];
-
-							// get the projected line
-							const e1 = edgesBvh.lines[ i1 ];
-							_line1.copy( e1 );
-							_line1.start.y = 0;
-							_line1.end.y = 0;
-
-							// get projected direction
-							_line1.delta( _dir1 ).normalize();
-
-							// early out if parallel
-							if ( Math.abs( _dir0.dot( _dir1 ) ) > 1 - 1e-5 ) {
-
-								continue;
-
-							}
-
-							// get the intersection point
-							const dist = _line0.distanceSqToLine3( _line1, _point0, _point1 );
-							if ( dist < 1e-5 ) {
-
-								// NOTE: only the second point from distanceSqToLine3 is valid due to a bug in r182 implementation
-								results[ i0 ].push( _line0.closestPointToPointParameter( _point1 ) );
-								results[ i1 ].push( _line1.closestPointToPointParameter( _point1 ) );
-
-							}
-
-						}
-
-					}
-
-				} );
+				yield;
+				time = performance.now();
 
 			}
 
-			// save out all the lines
-			for ( let i = 0, l = edgesBvh.lines.length; i < l; i ++ ) {
+			// use bvhcast to compare all edges against all meshes
+			const mesh = meshes[ m ];
+			bvhcastEdges( edgesBvh, bvhs.get( mesh.geometry ), mesh, hiddenOverlapMap );
 
-				const line = edgesBvh.lines[ i ];
-				pushFromSplits( line, results[ i ] || [], meshes, bvhs, visibleEdges, objectsBVH );
+		}
 
-			}
+		// construct the projections
+		const { result } = this;
+		for ( let i = 0; i < edges.length; i ++ ) {
 
-		} else {
+			if ( performance.now() - time > iterationTime ) {
 
-			time = performance.now();
-			for ( let m = 0; m < meshes.length; m ++ ) {
-
-				if ( performance.now() - time > iterationTime ) {
-
-					if ( options.onProgress ) {
-
-						options.onProgress( m, meshes.length );
-
-					}
-
-					yield;
-					time = performance.now();
-
-				}
-
-				// use bvhcast to compare all edges against all meshes
-				const mesh = meshes[ m ];
-				bvhcastEdges( edgesBvh, bvhs.get( mesh.geometry ), mesh, hiddenOverlapMap );
+				yield;
+				time = performance.now();
 
 			}
 
-			// construct the projections
-			for ( let i = 0; i < edges.length; i ++ ) {
+			// convert the overlap points to proper lines
+			const line = edges[ i ];
+			const mesh = line.mesh;
+			const hiddenOverlaps = hiddenOverlapMap[ i ];
 
-				if ( performance.now() - time > iterationTime ) {
+			if ( ! result.visibleEdges.meshToSegments.has( mesh ) ) {
 
-					yield;
-					time = performance.now();
-
-				}
-
-				// convert the overlap points to proper lines
-				const line = edges[ i ];
-				const hiddenOverlaps = hiddenOverlapMap[ i ];
-				overlapsToLines( line, hiddenOverlaps, false, visibleEdges );
-				overlapsToLines( line, hiddenOverlaps, true, hiddenEdges );
+				result.visibleEdges.meshToSegments.set( mesh, [] );
+				result.hiddenEdges.meshToSegments.set( mesh, [] );
 
 			}
+
+			overlapsToLines( line, hiddenOverlaps, false, result.visibleEdges.meshToSegments.get( mesh ) );
+			overlapsToLines( line, hiddenOverlaps, true, result.hiddenEdges.meshToSegments.get( mesh ) );
 
 		}
 
@@ -331,7 +270,7 @@ export class ProjectionGenerator {
 
 	}
 
-	*generate( scene, options ) {
+	*generate( scene, options = {} ) {
 
 		const { iterationTime, angleThreshold, includeIntersectionEdges } = this;
 		const { onProgress = () => {} } = options;
@@ -347,98 +286,53 @@ export class ProjectionGenerator {
 		edgeGenerator.thresholdAngle = angleThreshold;
 		edgeGenerator.projectionDirection.copy( UP_VECTOR );
 
-		onProgress( 'Extracting edges' );
+		onProgress( 0, 'Extracting edges' );
 		let edges = [];
 		yield* edgeGenerator.getEdgesGenerator( scene, edges );
 		if ( includeIntersectionEdges ) {
 
-			onProgress( 'Extracting self-intersecting edges' );
+			onProgress( 0, 'Extracting self-intersecting edges' );
 			yield* edgeGenerator.getIntersectionEdgesGenerator( scene, edges );
 
 		}
 
 		// filter out any degenerate projected edges
-		onProgress( 'Filtering edges' );
+		onProgress( 0, 'Filtering edges' );
 		edges = edges.filter( e => ! isYProjectedLineDegenerate( e ) );
+
+		edges.sort( ( a, b ) => {
+
+			const uuidA = a.mesh.uuid;
+			const uuidB = b.mesh.uuid;
+			if ( uuidA === uuidB ) {
+
+				return 0;
+
+			} else {
+
+				return uuidA < uuidB ? - 1 : 1;
+
+			}
+
+		} );
 
 		yield;
 
 		const collector = new ProjectedEdgeCollector( scene );
 		collector.iterationTime = iterationTime;
 
-		onProgress( 'Clipping edges' );
+		onProgress( 0, 'Clipping edges' );
 		yield* collector.addEdgesGenerator( edges, {
 			onProgress: ! onProgress ? null : ( prog, tot ) => {
 
-				onProgress( 'Clipping edges', prog / tot, collector );
+				onProgress( prog / tot, 'Clipping edges', collector.result );
 
 			},
 		} );
 
-		return collector;
+		return collector.result;
 
 	}
 
 }
 
-function pushFromSplits( line, splits, meshes, bvhs, target, objectsBVH ) {
-
-	const hits = [];
-
-	// sort the splits
-	splits.push( 0, 1 );
-	splits.sort( ( a, b ) => a - b );
-
-	// iterate over splits
-	_raycaster.firstHitOnly = true;
-	for ( let i = 0; i < splits.length - 1; i ++ ) {
-
-		const s0 = splits[ i ];
-		const s1 = splits[ i + 1 ];
-		if ( s0 === s1 ) {
-
-			continue;
-
-		}
-
-		// set up the raycaster to project check the middle of the line
-		const middle = ( s0 + s1 ) / 2;
-		line.at( middle, _raycaster.ray.origin );
-		_raycaster.ray.origin.y += 1e4;
-		_raycaster.far = 1e4;
-		_raycaster.ray.direction.set( 0, - 1, 0 );
-
-		// perform the raycasting check
-		let visible = true;
-		for ( let m = 0, lm = meshes.length; m < lm; m ++ ) {
-
-			const mesh = meshes[ m ];
-			const bvh = bvhs.get( mesh.geometry );
-			hits.length = 0;
-
-			bvh.raycastObject3D( mesh, _raycaster, hits );
-			if ( hits.length > 0 ) {
-
-				visible = false;
-				break;
-
-			}
-
-		}
-
-		// if it's visible then save it
-		if ( visible ) {
-
-			line.at( s0, _line.start );
-			line.at( s1, _line.end );
-
-			target.push( new Float32Array( [
-				_line.start.x, 0, _line.start.z,
-				_line.end.x, 0, _line.end.z,
-			] ) );
-
-		}
-
-	}
-
-}

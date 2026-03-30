@@ -1,16 +1,14 @@
 import {
-	ShaderMaterial,
-	GLSL3,
-	WebGLRenderTarget,
 	Box3,
 	Vector3,
 	Vector4,
 	OrthographicCamera,
 	Color,
 	Mesh,
-	NoBlending,
 } from 'three';
-import { getAllMeshes } from './utils/getAllMeshes.js';
+import { RenderTarget, MeshBasicNodeMaterial } from 'three/webgpu';
+import { uniform } from 'three/tsl';
+import { getAllMeshes } from '../utils/getAllMeshes.js';
 
 // RGBA8 ID encoding - supports up to 16,777,215 objects (2^24 - 1)
 // ID 0 is valid, background is indicated by alpha = 0
@@ -29,8 +27,6 @@ function decodeId( buffer, index ) {
 
 }
 
-// TODO: WebGPU or occlusion queries would let us accelerate this. Ideally would we "contract" the depth buffer by one pixel by
-// taking the lowest value from all surrounding pixels in order to avoid mesh misses.
 export class MeshVisibilityCuller {
 
 	constructor( renderer, options = {} ) {
@@ -50,11 +46,15 @@ export class MeshVisibilityCuller {
 		const size = new Vector3();
 		const camera = new OrthographicCamera();
 		const box = new Box3();
-		const idMesh = new Mesh( undefined, new IDMaterial() );
+
+		const idValue = new Vector4();
+		const idUniform = uniform( idValue );
+		const idMaterial = new MeshBasicNodeMaterial();
+		idMaterial.colorNode = idUniform;
+
+		const idMesh = new Mesh( undefined, idMaterial );
 		idMesh.matrixAutoUpdate = false;
 		idMesh.matrixWorldAutoUpdate = false;
-
-		const target = new WebGLRenderTarget( 1, 1 );
 
 		// get the bounds of the image
 		box.makeEmpty();
@@ -68,13 +68,13 @@ export class MeshVisibilityCuller {
 		box.getSize( size );
 
 		// calculate the tile and target size
-		const maxTextureSize = Math.min( renderer.capabilities.maxTextureSize, 2 ** 13 );
+		const maxTextureSize = Math.min( renderer.backend.device.limits.maxTextureDimension2D, 2 ** 13 );
 		const pixelWidth = Math.ceil( size.x / pixelsPerMeter );
 		const pixelHeight = Math.ceil( size.z / pixelsPerMeter );
 		const tilesX = Math.ceil( pixelWidth / maxTextureSize );
 		const tilesY = Math.ceil( pixelHeight / maxTextureSize );
 
-		target.setSize( Math.ceil( pixelWidth / tilesX ), Math.ceil( pixelHeight / tilesY ) );
+		const target = new RenderTarget( Math.ceil( pixelWidth / tilesX ), Math.ceil( pixelHeight / tilesY ) );
 
 		// set the camera bounds
 		camera.rotation.x = - Math.PI / 2;
@@ -88,7 +88,6 @@ export class MeshVisibilityCuller {
 		const autoClear = renderer.autoClear;
 
 		// render ids
-		const readBuffer = new Uint8Array( target.width * target.height * 4 );
 		const visibleSet = new Set();
 		const stepX = size.x / tilesX;
 		const stepZ = size.z / tilesY;
@@ -105,7 +104,7 @@ export class MeshVisibilityCuller {
 
 				camera.updateProjectionMatrix();
 
-				// clear the camera
+				// clear the render target
 				renderer.autoClear = false;
 				renderer.setClearColor( 0, 0 );
 				renderer.setRenderTarget( target );
@@ -117,7 +116,7 @@ export class MeshVisibilityCuller {
 					idMesh.matrixWorld.copy( object.matrixWorld );
 					idMesh.geometry = object.geometry;
 
-					idMesh.material.objectId = i;
+					encodeId( i, idValue );
 					renderer.render( idMesh, camera );
 
 				}
@@ -127,7 +126,7 @@ export class MeshVisibilityCuller {
 				renderer.setRenderTarget( renderTarget );
 				renderer.autoClear = autoClear;
 
-				const buffer = await renderer.readRenderTargetPixelsAsync( target, 0, 0, target.width, target.height, readBuffer );
+				const buffer = new Uint8Array( await renderer.readRenderTargetPixelsAsync( target, 0, 0, target.width, target.height ) );
 
 				// find all visible objects - decode RGBA to ID
 				for ( let i = 0, l = buffer.length; i < l; i += 4 ) {
@@ -145,57 +144,10 @@ export class MeshVisibilityCuller {
 		}
 
 		// dispose of intermediate values
-		idMesh.material.dispose();
+		idMaterial.dispose();
 		target.dispose();
 
 		return Array.from( visibleSet );
-
-	}
-
-}
-
-
-class IDMaterial extends ShaderMaterial {
-
-	set objectId( v ) {
-
-		encodeId( v, this.uniforms.objectId.value );
-
-	}
-
-	constructor( params ) {
-
-		super( {
-
-			glslVersion: GLSL3,
-			blending: NoBlending,
-
-			uniforms: {
-				objectId: { value: new Vector4() },
-			},
-
-			vertexShader: /* glsl */`
-				void main() {
-
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-
-				}
-			`,
-
-			fragmentShader: /* glsl */`
-				layout(location = 0) out vec4 out_id;
-				uniform vec4 objectId;
-
-				void main() {
-
-					out_id = objectId;
-
-				}
-			`,
-
-		} );
-
-		this.setValues( params );
 
 	}
 

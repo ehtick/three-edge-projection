@@ -1,4 +1,5 @@
-import { Vector3, Triangle, Line3, MathUtils } from 'three';
+import { Vector3, Triangle, MathUtils } from 'three';
+import { ProjectionEdge } from './ProjectionEdge.js';
 
 // Modified version of js EdgesGeometry logic to handle silhouette edges
 const EPSILON = 1e-10;
@@ -108,7 +109,7 @@ export function* generateEdges( geometry, target = [], options = {} ) {
 
 				if ( meetsThreshold || projectionThreshold ) {
 
-					const line = new Line3();
+					const line = new ProjectionEdge();
 					line.start.copy( v0 );
 					line.end.copy( v1 );
 					target.push( line );
@@ -143,7 +144,7 @@ export function* generateEdges( geometry, target = [], options = {} ) {
 			_v0.fromBufferAttribute( positionAttr, index0 );
 			_v1.fromBufferAttribute( positionAttr, index1 );
 
-			const line = new Line3();
+			const line = new ProjectionEdge();
 			line.start.copy( _v0 );
 			line.end.copy( _v1 );
 			target.push( line );
