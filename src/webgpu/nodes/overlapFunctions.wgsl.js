@@ -125,8 +125,6 @@ export const clipTriangleToPlane = wgslTagFn/* wgsl */`
 export const trimToBeneathTriPlane = wgslTagFn/* wgsl */`
 	fn trimToBeneathTriPlane( tri: ${ TriWGSL.struct }, line: ${ LineWGSL.struct }, output: ptr<function, ${ LineWGSL.struct }> ) -> bool {
 
-		// TODO: this function may be causing issues
-
 		// compute the triangle plane, ensuring the normal faces up
 		let triNormal = ${ TriWGSL.getNormal }( tri );
 		var plane = ${ PlaneWGSL.fromNormalAndCoplanarPoint }( triNormal, tri.a );
@@ -221,7 +219,6 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 		_line.end.y = 0.0;
 
 		// skip degenerate projected triangles
-		// TODO: Add degenerate triangle test function.
 		if ( ${ TriWGSL.getArea }( _tri ) <= ${ AREA_EPSILON } ) {
 
 			return false;
@@ -232,7 +229,6 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 		let lineDistance = length( dir );
 		dir = dir / lineDistance;
 
-		// TODO: this is slightly different (not using normal which could be +-)
 		// cutting plane: orthogonal to the edge direction in XZ, passing through ls
 		let normal = ${ TriWGSL.getNormal }( _tri );
 		let orthoNormal = normalize( cross( dir, normal ) );
@@ -342,7 +338,6 @@ export const getProjectedOverlapRange = wgslTagFn/* wgsl */`
 export const isYProjectedLineDegenerate = wgslTagFn/* wgsl */`
 	fn isYProjectedLineDegenerate( lineStart: vec3f, lineEnd: vec3f ) -> bool {
 
-		// TODO: just measure the projected distance here
 		let dir = normalize( lineEnd - lineStart );
 		return abs( dir.y ) >= 1.0 - ${ VERTEX_EPSILON };
 

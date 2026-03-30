@@ -231,9 +231,21 @@ export class ProjectionGenerator {
 		}
 
 		// drain — sequential iteration naturally picks up overflow sub-jobs added to promises
-		for ( let i = 0; i < promises.length; i ++ ) {
+		try {
 
-			await promises[ i ];
+			for ( let i = 0; i < promises.length; i ++ ) {
+
+				await promises[ i ];
+
+			}
+
+		} finally {
+
+			signal?.removeEventListener( 'abort', onAbort );
+			// overlapsAttribute.dispose();
+			// bufferPointersAttribute.dispose();
+			// overflowFlagAttribute.dispose();
+			// edgeBufferAttribute.dispose();
 
 		}
 

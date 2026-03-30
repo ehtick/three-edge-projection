@@ -65,7 +65,7 @@ export class EdgeGenerator {
 			let time = performance.now();
 			for ( let i = 0; i < meshes.length; i ++ ) {
 
-				if ( time - performance.now() > iterationTime ) {
+				if ( performance.now() - time > iterationTime ) {
 
 					yield;
 
