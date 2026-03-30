@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ## [0.0.6] - Unreleased
 ### Fixed
 - MeshVisibilityCuller: fix case where the id buffer could be corrupted with separate renders.
+- MeshVisibilityCuller: fix incorrect tiling resulting in incorrect results.
+
+### Changed
+- ProjectionGeneration: Adjust the "onProgress" option callback to always take the "progress" number as the first argument.
+
+### Added
+- Add a "three-edge-projection/webgpu" export including a WebGPURenderer-compatible MeshVsibilityCuller, ProjectionGenerator.
 
 ## [0.0.5] - 2025.01.29
 ### Fixed
