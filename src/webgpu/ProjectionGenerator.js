@@ -135,23 +135,31 @@ export class ProjectionGenerator {
 
 		//
 		const intervalsByEdge = new Map();
-		let batchStep = batchCapacity;
 		let progress = 0;
-		let promises = [];
-		for ( let e = 0; e < edges.length; e += batchStep ) {
+		const promises = [];
+		const edgeStructStride = edgeStruct.getLength();
+
+		// build initial job queue — one job per batchCapacity chunk
+		const queue = [];
+		for ( let e = 0; e < edges.length; e += batchCapacity ) {
+
+			queue.push( { start: e, count: Math.min( batchCapacity, edges.length - e ) } );
+
+		}
+
+		while ( queue.length > 0 ) {
 
 			signal?.throwIfAborted();
 
-			const iterationCount = Math.min( batchStep, edges.length - e );
+			const { start, count } = queue.shift();
 
 			// fill out the edges array
-			const edgeStructStride = edgeStruct.getLength();
-			for ( let i = 0; i < iterationCount; i ++ ) {
+			for ( let i = 0; i < count; i ++ ) {
 
-				const { start, end } = edges[ e + i ];
+				const edge = edges[ start + i ];
 				const offset = i * edgeStructStride;
-				start.toArray( edgeBufferData, offset );
-				end.toArray( edgeBufferData, offset + 3 );
+				edge.start.toArray( edgeBufferData, offset );
+				edge.end.toArray( edgeBufferData, offset + 3 );
 				edgeBufferDataU32[ offset + 6 ] = i;
 
 			}
@@ -169,27 +177,27 @@ export class ProjectionGenerator {
 			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
 
 			// accumulate potential triangle-edge overlap pairs
-			edgePairsKernel.edgesToProcess = iterationCount;
-			renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( iterationCount ) );
+			edgePairsKernel.edgesToProcess = count;
+			renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( count ) );
 
-			const overflow = new Uint32Array( await renderer.getArrayBufferAsync( overflowFlagAttribute ) );
+			const overflow = new Uint32Array( await renderer.getArrayBufferAsync( overflowFlagAttribute ) )[ 0 ];
 			if ( overflow > 0 ) {
 
-				if ( batchStep === 1 ) {
+				if ( count === 1 ) {
 
 					console.error( `ProjectionGenerator: Overlaps buffer insufficient size to store all segments. Please report to three-edge-projection.` );
 
 				} else {
 
-					batchStep = Math.ceil( batchStep * 0.5 );
-					e -= batchStep;
+					// split the job in half and push both halves back to the front of the queue
+					const half = Math.ceil( count / 2 );
+					queue.push( { start: start + half, count: count - half } );
+					queue.push( { start, count: half } );
 					continue;
 
 				}
 
 			}
-
-			// read back actual pair count before dispatching
 
 			const dispatchSize = edgeOverlapsKernel.getDispatchSize( triEdgePairsAttribute.count )[ 0 ];
 			const dispatchStepSize = Math.min( dispatchSize, MAX_DISPATCH_SIZE );
@@ -201,15 +209,12 @@ export class ProjectionGenerator {
 
 			}
 
-			//
-
 			// run the data read back asynchronously so we can prepare and issue the subsequent
 			// compute while we wait for this data.
 			promises.push( ( async () => {
 
-				// declare "e" variable locally so it's not changing out from under us
-				// after the async operations.
-				const local_e = e;
+				const local_start = start;
+				const local_count = count;
 				const [ overlaps, bufferPointers ] = await Promise.all( [
 					renderer.getArrayBufferAsync( overlapsAttribute ),
 					renderer.getArrayBufferAsync( bufferPointersAttribute ),
@@ -227,7 +232,7 @@ export class ProjectionGenerator {
 				for ( let oi = 0, ol = bufferPointersU32[ 0 ]; oi < ol; oi ++ ) {
 
 					const index = oi * stride;
-					const ei = local_e + overlapsU32[ index + 0 ];
+					const ei = local_start + overlapsU32[ index + 0 ];
 					const t0 = overlapsF32[ index + 1 ];
 					const t1 = overlapsF32[ index + 2 ];
 
@@ -241,7 +246,7 @@ export class ProjectionGenerator {
 
 				}
 
-				progress += iterationCount;
+				progress += local_count;
 
 				// fire progress
 				if ( onProgress ) {
@@ -252,15 +257,6 @@ export class ProjectionGenerator {
 
 			} )() );
 
-			// try to grow the batch step towards the original stride
-			if ( batchStep < batchCapacity ) {
-
-				e += batchStep;
-				batchStep = Math.min( batchStep * 2.0, batchCapacity );
-				e -= batchStep;
-
-			}
-
 		}
 
 		// wait for all the data read back to finish
@@ -268,7 +264,6 @@ export class ProjectionGenerator {
 
 		signal?.throwIfAborted();
 
-		console.time('COLLECT')
 		// push all edges to the "results" object
 		const collector = new ProjectionResult();
 		for ( let i = 0; i < edges.length; i ++ ) {
@@ -286,8 +281,6 @@ export class ProjectionGenerator {
 			overlapsToLines( edges[ i ], intervals, true, collector.hiddenEdges.meshToSegments.get( mesh ) );
 
 		}
-
-		console.timeEnd('COLLECT')
 
 		return collector;
 
