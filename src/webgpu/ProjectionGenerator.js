@@ -39,7 +39,7 @@ export class ProjectionGenerator {
 	async generate( scene, options = {} ) {
 
 		const { renderer, angleThreshold, includeIntersectionEdges, batchSize } = this;
-		const { onProgress = null } = options;
+		const { onProgress = null, signal = null } = options;
 
 		// collect meshes
 		const meshes = getAllMeshes( scene );
@@ -140,6 +140,8 @@ export class ProjectionGenerator {
 		let promises = [];
 		for ( let e = 0; e < edges.length; e += batchStep ) {
 
+			signal?.throwIfAborted();
+
 			const iterationCount = Math.min( batchStep, edges.length - e );
 
 			// fill out the edges array
@@ -213,6 +215,8 @@ export class ProjectionGenerator {
 					renderer.getArrayBufferAsync( bufferPointersAttribute ),
 				] );
 
+				signal?.throwIfAborted();
+
 				// read buffers
 				const overlapsF32 = new Float32Array( overlaps );
 				const overlapsU32 = new Uint32Array( overlaps );
@@ -261,6 +265,8 @@ export class ProjectionGenerator {
 
 		// wait for all the data read back to finish
 		await Promise.all( promises );
+
+		signal?.throwIfAborted();
 
 		// push all edges to the "results" object
 		const collector = new ProjectionResult();
