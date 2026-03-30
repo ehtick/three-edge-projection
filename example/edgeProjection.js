@@ -232,7 +232,7 @@ async function* updateEdges( runTime = 30 ) {
 	}
 
 	const collection = yield* generator.generate( input, {
-		onProgress: ( msg, tot, edges ) => {
+		onProgress: ( tot, msg, edges ) => {
 
 			outputContainer.innerText = msg;
 			if ( tot ) outputContainer.innerText += ' ' + ( 100 * tot ).toFixed( 1 ) + '%';

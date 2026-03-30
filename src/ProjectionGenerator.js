@@ -286,18 +286,18 @@ export class ProjectionGenerator {
 		edgeGenerator.thresholdAngle = angleThreshold;
 		edgeGenerator.projectionDirection.copy( UP_VECTOR );
 
-		onProgress( 'Extracting edges' );
+		onProgress( 0, 'Extracting edges' );
 		let edges = [];
 		yield* edgeGenerator.getEdgesGenerator( scene, edges );
 		if ( includeIntersectionEdges ) {
 
-			onProgress( 'Extracting self-intersecting edges' );
+			onProgress( 0, 'Extracting self-intersecting edges' );
 			yield* edgeGenerator.getIntersectionEdgesGenerator( scene, edges );
 
 		}
 
 		// filter out any degenerate projected edges
-		onProgress( 'Filtering edges' );
+		onProgress( 0, 'Filtering edges' );
 		edges = edges.filter( e => ! isYProjectedLineDegenerate( e ) );
 
 		edges.sort( ( a, b ) => {
@@ -321,11 +321,11 @@ export class ProjectionGenerator {
 		const collector = new ProjectedEdgeCollector( scene );
 		collector.iterationTime = iterationTime;
 
-		onProgress( 'Clipping edges' );
+		onProgress( 0, 'Clipping edges' );
 		yield* collector.addEdgesGenerator( edges, {
 			onProgress: ! onProgress ? null : ( prog, tot ) => {
 
-				onProgress( 'Clipping edges', prog / tot, collector.result );
+				onProgress( prog / tot, 'Clipping edges', collector.result );
 
 			},
 		} );
