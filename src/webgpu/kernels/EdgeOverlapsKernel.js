@@ -53,10 +53,10 @@ export class EdgeOverlapsKernel extends ComputeKernel {
 
 				// back-face cull based on per-object side (0=double, 1=front, -1=back)
 				let inverted  = determinant( matrixWorld ) < 0.0;
-				let triNormal = cross( tri.b - tri.a, tri.c - tri.a );
 				let side = ${ transformsStorage }[ objectIndex ].side;
 				if ( side != ${ constants.DOUBLE_SIDE } ) {
 
+					let triNormal = ${ TriWGSL.getNormal }( tri );
 					let faceUp = ( triNormal.y > 0.0 ) != inverted;
 					if ( faceUp == ( side == ${ constants.BACK_SIDE } ) ) {
 

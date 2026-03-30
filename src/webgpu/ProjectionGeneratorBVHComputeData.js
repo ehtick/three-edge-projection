@@ -6,7 +6,7 @@ import { wgslTagFn } from './lib/nodes/WGSLTagFnNode.js';
 import { bvhNodeBoundsStruct } from './lib/wgsl/structs.wgsl.js';
 import { transformBVHBounds } from './nodes/utils.wgsl.js';
 import { constants as overlapConstants } from './nodes/common.wgsl.js';
-import { isLineTriangleEdge } from './nodes/overlapFunctions.wgsl.js';
+import { getProjectedOverlapRange, isLineTriangleEdge, trimToBeneathTriPlane } from './nodes/overlapFunctions.wgsl.js';
 import { LineWGSL, TriWGSL } from './nodes/primitives.js';
 
 // Shape struct carrying world-space line endpoints plus the object-to-world
@@ -115,7 +115,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	getCollectTriEdgePairsFn( { pairsStorage, pairsCountsStorage, overflowFlagStorage } ) {
 
 		const { storage } = this;
-		const { DOUBLE_SIDE, BACK_SIDE } = overlapConstants;
+		const { DOUBLE_SIDE, BACK_SIDE, DIST_THRESHOLD } = overlapConstants;
 
 		const intersectsBoundsFn = wgslTagFn/* wgsl */`
 			fn intersectsBounds( shape: ${ edgeLineShapeStruct }, bounds: ${ bvhNodeBoundsStruct } ) -> f32 {
@@ -194,7 +194,10 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 				line.end = shape.worldEnd;
 
 				let lineMinY = min( line.start.y, line.end.y );
+				let lineMaxY = max( line.start.y, line.end.y );
+
 				let matrixWorld = shape.matrixWorld;
+				let side = ${ storage.transforms }[ shape.objectIndex ].side;
 				let inverted = determinant( matrixWorld ) < 0.0;
 
 				for ( var ti = offset; ti < offset + count; ti = ti + 1u ) {
@@ -203,19 +206,14 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					let i1 = ${ storage.index }[ ti * 3u + 1u ];
 					let i2 = ${ storage.index }[ ti * 3u + 2u ];
 
-					let localA = ${ storage.attributes }[ i0 ].position.xyz;
-					let localB = ${ storage.attributes }[ i1 ].position.xyz;
-					let localC = ${ storage.attributes }[ i2 ].position.xyz;
-
-					tri.a = ( matrixWorld * vec4f( localA, 1.0 ) ).xyz;
-					tri.b = ( matrixWorld * vec4f( localB, 1.0 ) ).xyz;
-					tri.c = ( matrixWorld * vec4f( localC, 1.0 ) ).xyz;
+					tri.a = ( matrixWorld * vec4f( ${ storage.attributes }[ i0 ].position.xyz, 1.0 ) ).xyz;
+					tri.b = ( matrixWorld * vec4f( ${ storage.attributes }[ i1 ].position.xyz, 1.0 ) ).xyz;
+					tri.c = ( matrixWorld * vec4f( ${ storage.attributes }[ i2 ].position.xyz, 1.0 ) ).xyz;
 
 					// back-face cull
-					let triNormal = cross( tri.b - tri.a, tri.c - tri.a );
-					let side = ${ storage.transforms }[ shape.objectIndex ].side;
 					if ( side != ${ DOUBLE_SIDE } ) {
 
+						let triNormal = ${ TriWGSL.getNormal }( tri );
 						let faceUp = ( triNormal.y > 0.0 ) != inverted;
 						if ( faceUp == ( side == ${ BACK_SIDE } ) ) {
 
@@ -225,9 +223,11 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					}
 
+					let triMaxY = max( max( tri.a.y, tri.b.y ), tri.c.y );
+					let triMinY = min( min( tri.a.y, tri.b.y ), tri.c.y );
+
 					// skip triangles entirely below the edge
-					let highestTriY = max( max( tri.a.y, tri.b.y ), tri.c.y );
-					if ( highestTriY <= lineMinY ) {
+					if ( triMaxY <= lineMinY ) {
 
 						continue;
 
@@ -235,6 +235,34 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					// skip if the edge lies on this triangle
 					if ( ${ isLineTriangleEdge }( tri, line ) ) {
+
+						continue;
+
+					}
+
+					// trim edge to the portion below the triangle plane; if the
+					// entire line is already below the triangle, use the full line
+					var beneathLine: ${ LineWGSL.struct };
+					if ( lineMaxY < triMinY ) {
+
+						beneathLine = line;
+
+					} else if ( ! ${ trimToBeneathTriPlane }( tri, line, &beneathLine ) ) {
+
+						continue;
+
+					}
+
+					// skip degenerate trimmed segments
+					// TODO: add a "distant" utility function
+					if ( length( beneathLine.end - beneathLine.start ) < ${ DIST_THRESHOLD } ) {
+
+						continue;
+
+					}
+
+					var overlapLine: ${ LineWGSL.struct };
+					if ( ! ${ getProjectedOverlapRange }( beneathLine, tri, &overlapLine ) ) {
 
 						continue;
 
