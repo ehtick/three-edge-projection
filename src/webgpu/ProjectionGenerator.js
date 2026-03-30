@@ -149,78 +149,89 @@ export class ProjectionGenerator {
 
 		while ( queue.length > 0 ) {
 
-			signal?.throwIfAborted();
-
 			const { start, count } = queue.shift();
 
-			// fill out the edges array
-			for ( let i = 0; i < count; i ++ ) {
-
-				const edge = edges[ start + i ];
-				const offset = i * edgeStructStride;
-				edge.start.toArray( edgeBufferData, offset );
-				edge.end.toArray( edgeBufferData, offset + 3 );
-				edgeBufferDataU32[ offset + 6 ] = i;
-
-			}
-
-			edgeBufferAttribute.needsUpdate = true;
-
-			// clear the pairs counts & overlaps pointers
-			zeroOutKernel.target = triEdgePairsCountAttribute;
-			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
-
-			zeroOutKernel.target = bufferPointersAttribute;
-			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
-
-			zeroOutKernel.target = overflowFlagAttribute;
-			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
-
-			// accumulate potential triangle-edge overlap pairs
-			edgePairsKernel.edgesToProcess = count;
-			renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( count ) );
-
-			const overflow = new Uint32Array( await renderer.getArrayBufferAsync( overflowFlagAttribute ) )[ 0 ];
-			if ( overflow > 0 ) {
-
-				if ( count === 1 ) {
-
-					console.error( `ProjectionGenerator: Overlaps buffer insufficient size to store all segments. Please report to three-edge-projection.` );
-
-				} else {
-
-					// split the job in half and push both halves back to the front of the queue
-					const half = Math.ceil( count / 2 );
-					queue.push( { start: start + half, count: count - half } );
-					queue.push( { start, count: half } );
-					continue;
-
-				}
-
-			}
-
-			const dispatchSize = edgeOverlapsKernel.getDispatchSize( triEdgePairsAttribute.count )[ 0 ];
-			const dispatchStepSize = Math.min( dispatchSize, MAX_DISPATCH_SIZE );
-
-			// run dispatches for all overlaps
-			for ( let i = 0; i < dispatchSize; i += dispatchStepSize ) {
-
-				renderer.compute( edgeOverlapsKernel.kernel, [ dispatchStepSize, 1, 1 ] );
-
-			}
+			await new Promise( resolve => requestAnimationFrame( resolve ) );
 
 			// run the data read back asynchronously so we can prepare and issue the subsequent
 			// compute while we wait for this data.
 			promises.push( ( async () => {
 
+				if ( signal?.isAborted ) {
+
+					return;
+
+				}
+
+				// fill out the edges array
+				for ( let i = 0; i < count; i ++ ) {
+
+					const edge = edges[ start + i ];
+					const offset = i * edgeStructStride;
+					edge.start.toArray( edgeBufferData, offset );
+					edge.end.toArray( edgeBufferData, offset + 3 );
+					edgeBufferDataU32[ offset + 6 ] = i;
+
+				}
+
+				edgeBufferAttribute.needsUpdate = true;
+
+				// clear the pairs counts & overlaps pointers
+				zeroOutKernel.target = triEdgePairsCountAttribute;
+				renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+
+				zeroOutKernel.target = bufferPointersAttribute;
+				renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+
+				zeroOutKernel.target = overflowFlagAttribute;
+				renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
+
+				// accumulate potential triangle-edge overlap pairs
+				edgePairsKernel.edgesToProcess = count;
+				renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( count ) );
+
+				const dispatchSize = edgeOverlapsKernel.getDispatchSize( triEdgePairsAttribute.count )[ 0 ];
+				const dispatchStepSize = Math.min( dispatchSize, MAX_DISPATCH_SIZE );
+
+				// run dispatches for all overlaps
+				for ( let i = 0; i < dispatchSize; i += dispatchStepSize ) {
+
+					renderer.compute( edgeOverlapsKernel.kernel, [ dispatchStepSize, 1, 1 ] );
+
+				}
+
 				const local_start = start;
 				const local_count = count;
-				const [ overlaps, bufferPointers ] = await Promise.all( [
+				const [ overlaps, bufferPointers, overflowBuffer ] = await Promise.all( [
 					renderer.getArrayBufferAsync( overlapsAttribute ),
 					renderer.getArrayBufferAsync( bufferPointersAttribute ),
+					renderer.getArrayBufferAsync( overflowFlagAttribute ),
 				] );
 
-				signal?.throwIfAborted();
+				if ( signal?.isAborted ) {
+
+					return;
+
+				}
+
+				const overflow = new Uint32Array( overflowBuffer )[ 0 ];
+				if ( overflow > 0 ) {
+
+					if ( count === 1 ) {
+
+						console.error( `ProjectionGenerator: Overlaps buffer insufficient size to store all segments. Please report to three-edge-projection.` );
+
+					} else {
+
+						// split the job in half and push both halves back to the front of the queue
+						const half = Math.ceil( count / 2 );
+						queue.push( { start: start + half, count: count - half } );
+						queue.push( { start, count: half } );
+						return;
+
+					}
+
+				}
 
 				// read buffers
 				const overlapsF32 = new Float32Array( overlaps );
