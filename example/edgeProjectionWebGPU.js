@@ -81,16 +81,13 @@ async function init() {
 
 	// load model
 	group = new Group();
-	window.GROUP = group;
-	group.rotation.set( 0.3, 0, 0.3 );
-	group.updateMatrixWorld();
 	scene.add( group );
 
 	const gltf = await new GLTFLoader()
 		.setMeshoptDecoder( MeshoptDecoder )
-		// .loadAsync( 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/nasa-m2020/Perseverance.glb' );
-		.loadAsync( new URL( './simple.glb', import.meta.url ).toString() );
+		.loadAsync( 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/nasa-m2020/Perseverance.glb' );
 	model = gltf.scene;
+
 
 	// initialize BVHs
 	model.traverse( c => {
@@ -144,13 +141,16 @@ async function init() {
 	} );
 
 	gui = new GUI();
-	gui.add( params, 'displayModel' ).onChange( () => needsRender = true );
-	gui.add( params, 'displayDrawThroughProjection' ).onChange( () => needsRender = true );
-	gui.add( params, 'includeIntersectionEdges' );
-	gui.add( params, 'visibilityCullMeshes' );
-	gui.add( params, 'perObjectColors' );
-	gui.add( params, 'rotate' );
-	gui.add( params, 'regenerate' );
+	const displayFolder = gui.addFolder( 'Display' );
+	displayFolder.add( params, 'displayModel' ).onChange( () => needsRender = true );
+	displayFolder.add( params, 'displayDrawThroughProjection' ).onChange( () => needsRender = true );
+
+	const projectionFolder = gui.addFolder( 'Projection' );
+	projectionFolder.add( params, 'includeIntersectionEdges' );
+	projectionFolder.add( params, 'visibilityCullMeshes' );
+	projectionFolder.add( params, 'perObjectColors' );
+	projectionFolder.add( params, 'rotate' );
+	projectionFolder.add( params, 'regenerate' );
 
 	render();
 
@@ -206,11 +206,8 @@ async function updateEdges() {
 	const hidGeom = result.hiddenEdges.getLineGeometry();
 	if ( params.perObjectColors ) {
 
-		console.time('TEST')
-
 		applyPerObjectColors( result.visibleEdges, visGeom );
 		applyPerObjectColors( result.hiddenEdges, hidGeom, 0.8 );
-		console.timeEnd('TEST')
 
 	}
 
