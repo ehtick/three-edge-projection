@@ -112,7 +112,7 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 	// pairs that could not be written due to buffer overflow.
 	//
 	// NOTE: pairsCountsStorage must be bound as array<atomic<u32>> (read_write storage).
-	getCollectTriEdgePairsFn( { pairsStorage, pairsCountsStorage, overflowFlagStorage } ) {
+	getCollectTriEdgePairsFn( { overlapsStorage, bufferPointersStorage, overflowFlagStorage } ) {
 
 		const { storage } = this;
 		const { DOUBLE_SIDE, BACK_SIDE, DIST_THRESHOLD } = overlapConstants;
@@ -268,14 +268,27 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 
 					}
 
-					// claim a slot and write the pair record when in write mode
-					let slot = atomicAdd( &${ pairsCountsStorage }[ 0 ], 1u );
-					if ( slot < arrayLength( &${ pairsStorage } ) ) {
+					// compute t0/t1 parametric positions along the original edge
+					let lineDir = line.end - line.start;
+					let lineLen = length( lineDir );
+					var t0 = length( overlapLine.start - line.start ) / lineLen;
+					var t1 = length( overlapLine.end - line.start ) / lineLen;
+					t0 = clamp( t0, 0.0, 1.0 );
+					t1 = clamp( t1, 0.0, 1.0 );
 
-						${ pairsStorage }[ slot ].edgeIndex   = shape.edgeIndex;
-						${ pairsStorage }[ slot ].objectIndex = shape.objectIndex;
-						${ pairsStorage }[ slot ].triIndex    = ti;
-						atomicAdd( &${ pairsCountsStorage }[ 1 ], 1u );
+					if ( abs( t0 - t1 ) <= ${ DIST_THRESHOLD } ) {
+
+						continue;
+
+					}
+
+					// claim a slot and write the overlap record directly
+					let slot = atomicAdd( &${ bufferPointersStorage }[ 0 ], 1u );
+					if ( slot < arrayLength( &${ overlapsStorage } ) ) {
+
+						${ overlapsStorage }[ slot ].edgeIndex = shape.edgeIndex;
+						${ overlapsStorage }[ slot ].t0 = t0;
+						${ overlapsStorage }[ slot ].t1 = t1;
 
 					} else {
 

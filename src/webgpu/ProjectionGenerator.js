@@ -4,9 +4,8 @@ import { getAllMeshes } from '../utils/getAllMeshes.js';
 import { EdgeGenerator } from '../EdgeGenerator.js';
 import { isYProjectedLineDegenerate } from '../utils/triangleLineUtils.js';
 import { ProjectionGeneratorBVHComputeData } from './ProjectionGeneratorBVHComputeData.js';
-import { edgeStruct, triEdgePairStruct, overlapRecordStruct } from './nodes/structs.wgsl.js';
+import { edgeStruct, overlapRecordStruct } from './nodes/structs.wgsl.js';
 import { EdgePairsKernel } from './kernels/EdgePairsKernel.js';
-import { EdgeOverlapsKernel } from './kernels/EdgeOverlapsKernel.js';
 import { overlapsToLines } from '../utils/overlapUtils.js';
 import { insertOverlap } from '../utils/getProjectedOverlaps.js';
 import { ProjectionResult } from '../ProjectionGenerator.js';
@@ -19,11 +18,9 @@ import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 
 // TODO: Consider storing the ranges with multiple edges clipped per thread to reduce the array size needed
 
-const MAX_DISPATCH_SIZE = 65535;
 const MAX_BUFFER_SIZE = 134217728;
 
-const LARGEST_STRUCT_SIZE = Math.max( triEdgePairStruct.getLength(), overlapRecordStruct.getLength() );
-const MAX_PAIRS_COUNT = Math.floor( MAX_BUFFER_SIZE / ( LARGEST_STRUCT_SIZE * 4 ) );
+const MAX_PAIRS_COUNT = Math.floor( MAX_BUFFER_SIZE / ( overlapRecordStruct.getLength() * 4 ) );
 
 const nextFrame = () => new Promise( resolve => requestAnimationFrame( resolve ) );
 export class ProjectionGenerator {
@@ -94,15 +91,13 @@ export class ProjectionGenerator {
 		const edgeBufferDataU32 = new Uint32Array( edgeBufferData.buffer );
 		const edgeBufferAttribute = new StorageBufferAttribute( edgeBufferData, edgeStruct.getLength() );
 
-		// store the triangle / edge pairs to
-		const triEdgePairsAttribute = new StorageBufferAttribute( MAX_PAIRS_COUNT, triEdgePairStruct.getLength(), Uint32Array );
-		const triEdgePairsCountAttribute = new StorageBufferAttribute( 2, 1 );
+		// overlap output buffer and atomic counter
 		const overlapsAttribute = new IndirectStorageBufferAttribute( MAX_PAIRS_COUNT, overlapRecordStruct.getLength(), Uint32Array );
-		const bufferPointersAttribute = new IndirectStorageBufferAttribute( 2, 1 );
+		const bufferPointersAttribute = new IndirectStorageBufferAttribute( 1, 1 );
 		const overflowFlagAttribute = new IndirectStorageBufferAttribute( 1, 1 );
 
-		const triEdgePairsStorage = storage( triEdgePairsAttribute, triEdgePairStruct ).setName( 'TriEdge' );
-		const triEdgePairsCountStorage = storage( triEdgePairsCountAttribute, 'uint' ).toAtomic();
+		const overlapsStorage = storage( overlapsAttribute, overlapRecordStruct ).setName( 'overlaps' );
+		const bufferPointersStorage = storage( bufferPointersAttribute, 'uint' ).toAtomic();
 		const overflowFlagStorage = storage( overflowFlagAttribute, 'uint' ).setName( 'overflowFlag' ).toAtomic();
 
 		//
@@ -111,8 +106,8 @@ export class ProjectionGenerator {
 		const bvhComputeData = new ProjectionGeneratorBVHComputeData( meshes );
 		bvhComputeData.update();
 		bvhComputeData.fns.collectTriEdgePairs = bvhComputeData.getCollectTriEdgePairsFn( {
-			pairsStorage: triEdgePairsStorage,
-			pairsCountsStorage: triEdgePairsCountStorage,
+			overlapsStorage: overlapsStorage,
+			bufferPointersStorage: bufferPointersStorage,
 			overflowFlagStorage: overflowFlagStorage,
 		} );
 
@@ -121,15 +116,6 @@ export class ProjectionGenerator {
 		edgePairsKernel.setWorkgroupSize( 64, 1, 1 );
 		edgePairsKernel.edges = edgeBufferAttribute;
 		edgePairsKernel.bvhData = bvhComputeData;
-
-		const edgeOverlapsKernel = new EdgeOverlapsKernel();
-		edgeOverlapsKernel.setWorkgroupSize( 64, 1, 1 );
-		edgeOverlapsKernel.pairs = triEdgePairsAttribute;
-		edgeOverlapsKernel.pairsCount = triEdgePairsCountAttribute;
-		edgeOverlapsKernel.bvhData = bvhComputeData;
-		edgeOverlapsKernel.edges = edgeBufferAttribute;
-		edgeOverlapsKernel.overlaps = overlapsAttribute;
-		edgeOverlapsKernel.bufferPointers = bufferPointersAttribute;
 
 		const zeroOutKernel = new ZeroOutBufferKernel();
 		zeroOutKernel.setWorkgroupSize( 1, 1, 1 );
@@ -163,29 +149,16 @@ export class ProjectionGenerator {
 
 			edgeBufferAttribute.needsUpdate = true;
 
-			// clear the pairs counts & overlaps pointers
-			zeroOutKernel.target = triEdgePairsCountAttribute;
-			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
-
+			// clear the overlaps counter and overflow flag
 			zeroOutKernel.target = bufferPointersAttribute;
-			renderer.compute( zeroOutKernel.kernel, [ 2, 1, 1 ] );
+			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
 
 			zeroOutKernel.target = overflowFlagAttribute;
 			renderer.compute( zeroOutKernel.kernel, [ 1, 1, 1 ] );
 
-			// accumulate potential triangle-edge overlap pairs
+			// traverse BVH and write overlaps directly
 			edgePairsKernel.edgesToProcess = count;
 			renderer.compute( edgePairsKernel.kernel, edgePairsKernel.getDispatchSize( count ) );
-
-			const dispatchSize = edgeOverlapsKernel.getDispatchSize( triEdgePairsAttribute.count )[ 0 ];
-			const dispatchStepSize = Math.min( dispatchSize, MAX_DISPATCH_SIZE );
-
-			// run dispatches for all overlaps
-			for ( let i = 0; i < dispatchSize; i += dispatchStepSize ) {
-
-				renderer.compute( edgeOverlapsKernel.kernel, [ dispatchStepSize, 1, 1 ] );
-
-			}
 
 			const [ overlaps, bufferPointers, overflowBuffer ] = await Promise.all( [
 				renderer.getArrayBufferAsync( overlapsAttribute ),
