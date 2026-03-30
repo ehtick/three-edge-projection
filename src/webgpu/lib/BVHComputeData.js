@@ -335,8 +335,8 @@ export class BVHComputeData {
 
 		}
 
-		let resultPtrSnippet = resultStruct ? wgslTagCode/* wgsl */`result: ptr<function, ${ resultStruct }>` : '';
-		let resultArg = resultStruct ? 'result' : '';
+		const resultPtrSnippet = resultStruct ? wgslTagCode/* wgsl */`result: ptr<function, ${ resultStruct }>` : '';
+		const resultArg = resultStruct ? 'result' : '';
 
 		const getFnBody = leafSnippet => {
 
@@ -438,10 +438,7 @@ export class BVHComputeData {
 
 						if ( ${ blasFn }( localShape, transform.nodeOffset, ${ resultArg } ) ) {
 
-
-							${ resultStruct ? 'result.objectIndex = i;' : '' }
 							${ transformResultSnippet }
-
 							didHit = true;
 
 						}
@@ -906,6 +903,7 @@ export class BVHComputeData {
 
 					let toLocal = ${ storage.transforms }[ objectIndex ].inverseMatrixWorld;
 					hit.normal = normalize( ( transpose( toLocal ) * vec4f( hit.normal, 0.0 ) ).xyz );
+					hit.objectIndex = objectIndex;
 
 				}
 			`,
