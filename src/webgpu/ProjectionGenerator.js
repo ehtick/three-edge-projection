@@ -19,7 +19,6 @@ import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
 
 // TODO: Consider storing the ranges with multiple edges clipped per thread to reduce the array size needed
 
-const OVERLAPS_PER_EDGE = 100;
 const MAX_DISPATCH_SIZE = 65535;
 const MAX_BUFFER_SIZE = 134217728;
 
