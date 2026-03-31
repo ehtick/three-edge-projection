@@ -139,7 +139,7 @@ Whether to generate edges representing the intersections between triangles.
 }
 ```
 
-Generate the edge geometry using a generator function.
+Generate the edge geometry result using a generator function.
 
 ### .generateAsync
 
@@ -279,11 +279,15 @@ Classes provided by the `three-edge-projection/webgpu` export and rely on three.
 angleThreshold = 50: number
 ```
 
+The threshold angle in degrees at which edges are generated.
+
 ### .includeIntersectionEdges
 
 ```js
 includeIntersectionEdges = true: boolean
 ```
+
+Whether to generate edges representing the intersections between triangles.
 
 ### .batchSize
 
@@ -298,6 +302,8 @@ The number of edges to process in one compute kernel pass. Larger values can pro
 ```js
 constructor( renderer: WebGPURenderer )
 ```
+
+Takes the WebGPURenderer instance used to run compute kernels.
 
 ### .generate
 
@@ -314,6 +320,8 @@ async generate(
 }
 ```
 
+Asynchronously generate the edge geometry result.
+
 ## MeshVisibilityCuller
 
 ### constructor
@@ -322,8 +330,12 @@ async generate(
 constructor( renderer: WebGPURenderer )
 ```
 
+Takes the WebGPURenderer instance used to render.
+
 ### .cull
 
 ```js
 async cull( object: Object3D | Array<Object3D> ): Array<Object3D>
 ```
+
+Returns the set of meshes that are visible within the given object.
