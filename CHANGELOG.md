@@ -4,13 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.0.7] - 2026.03.31
+### Fixed
+- ProjectionGenerator: Fixed intersection edges not being generated correctly.
+
 ## [0.0.6] - 2026.03.31
 ### Fixed
 - MeshVisibilityCuller: fix case where the id buffer could be corrupted with separate renders.
 - MeshVisibilityCuller: fix incorrect tiling resulting in incorrect results.
 
 ### Changed
-- ProjectionGeneration: Adjust the "onProgress" option callback to always take the "progress" number as the first argument.
+- ProjectionGenerator: Adjust the "onProgress" option callback to always take the "progress" number as the first argument.
 
 ### Added
 - Add a "three-edge-projection/webgpu" export including a WebGPURenderer-compatible MeshVsibilityCuller, ProjectionGenerator.
