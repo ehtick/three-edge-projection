@@ -289,6 +289,14 @@ includeIntersectionEdges = true: boolean
 
 Whether to generate edges representing the intersections between triangles.
 
+### .iterationTime
+
+```js
+iterationTime = 30 : Number
+```
+
+How long to spend generating edges.
+
 ### .batchSize
 
 ```js
@@ -311,7 +319,7 @@ Takes the WebGPURenderer instance used to run compute kernels.
 async generate(
 	geometry: Object3D | BufferGeometry | Array<Object3D>,
 	options: {
-		onProgress: ( percent: number ) => void,
+		onProgress: ( percent: number, message: string ) => void,
 		signal: AbortSignal,
 	}
 ): {
