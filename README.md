@@ -12,19 +12,19 @@ Edge projection based on [three-mesh-bvh](https://github.com/gkjohnson/three-mes
 
 # Examples
 
-[Rover edge projection](https://gkjohnson.github.io/three-edge-projection/example/dist/edgeProjection.html)
+[Rover edge projection](https://gkjohnson.github.io/three-edge-projection/edgeProjection.html)
 
-[Lego edge projection](https://gkjohnson.github.io/three-edge-projection/example/dist/edgeProjection.html#lego)
+[Lego edge projection](https://gkjohnson.github.io/three-edge-projection/edgeProjection.html#lego)
 
-[Silhouette projection](https://gkjohnson.github.io/three-edge-projection/example/dist/silhouetteProjection.html)
+[Silhouette projection](https://gkjohnson.github.io/three-edge-projection/silhouetteProjection.html)
 
-[Floor plan projection](https://gkjohnson.github.io/three-edge-projection/example/dist/floorProjection.html)
+[Floor plan projection](https://gkjohnson.github.io/three-edge-projection/floorProjection.html)
 
-[Planar intersection](https://gkjohnson.github.io/three-edge-projection/example/dist/planarIntersection.html)
+[Planar intersection](https://gkjohnson.github.io/three-edge-projection/planarIntersection.html)
 
 ### WebGPU
 
-[Rover edge projection](https://gkjohnson.github.io/three-edge-projection/example/dist/edgeProjectionWebGPU.html)
+[Rover edge projection](https://gkjohnson.github.io/three-edge-projection/edgeProjectionWebGPU.html)
 
 # Installation
 
