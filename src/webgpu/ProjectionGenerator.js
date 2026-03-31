@@ -1,5 +1,5 @@
 import { IndirectStorageBufferAttribute, StorageBufferAttribute } from 'three/webgpu';
-import { storage } from 'three/tsl';
+import { sign, storage } from 'three/tsl';
 import { getAllMeshes } from '../utils/getAllMeshes.js';
 import { EdgeGenerator } from '../EdgeGenerator.js';
 import { isYProjectedLineDegenerate } from '../utils/triangleLineUtils.js';
@@ -10,6 +10,7 @@ import { overlapsToLines } from '../utils/overlapUtils.js';
 import { insertOverlap } from '../utils/getProjectedOverlaps.js';
 import { ProjectionResult } from '../ProjectionGenerator.js';
 import { ZeroOutBufferKernel } from './kernels/ZeroOutBufferKernel.js';
+import { nextFrame } from '../utils/nextFrame.js';
 
 // TODO: Consider storing the ranges with multiple edges clipped per thread to reduce the array size needed
 
@@ -17,7 +18,6 @@ const MAX_BUFFER_SIZE = 134217728;
 
 const MAX_OVERLAPS_COUNT = Math.floor( MAX_BUFFER_SIZE / ( overlapRecordStruct.getLength() * 4 ) );
 
-const nextFrame = () => new Promise( resolve => requestAnimationFrame( resolve ) );
 export class ProjectionGenerator {
 
 	constructor( renderer ) {
@@ -26,12 +26,13 @@ export class ProjectionGenerator {
 		this.angleThreshold = 50;
 		this.batchSize = 100000;
 		this.includeIntersectionEdges = true;
+		this.iterationTime = 30;
 
 	}
 
 	async generate( scene, options = {} ) {
 
-		const { renderer, angleThreshold, includeIntersectionEdges, batchSize } = this;
+		const { renderer, angleThreshold, includeIntersectionEdges, batchSize, iterationTime } = this;
 		const { onProgress = null, signal = null } = options;
 
 		// collect meshes
@@ -40,43 +41,45 @@ export class ProjectionGenerator {
 		// generate edges
 		const edgeGenerator = new EdgeGenerator();
 		edgeGenerator.thresholdAngle = angleThreshold;
+		edgeGenerator.iterationTime = iterationTime;
 
 		// adjust the offset to account for floating point error in the edge processing and intersections.
 		// NOTE: Ideally we should be applying this relative to the scale of the values being used rather that
 		// using a fixed offset.
 		edgeGenerator.yOffset = 5 * 1e-5;
 
+		if ( onProgress ) {
+
+			onProgress( 0, 'Generating Edges' );
+
+		}
+
 		let edges = [];
-		edgeGenerator.getEdges( scene, edges );
+		await edgeGenerator.getEdgesAsync( scene, edges );
+		signal?.throwIfAborted();
+
 		if ( includeIntersectionEdges ) {
 
-			edgeGenerator.getIntersectionEdges( scene, edges );
+			if ( onProgress ) {
+
+				onProgress( 0, 'Generating Intersection Edges' );
+
+			}
+
+			await edgeGenerator.getIntersectionEdgesAsync( scene, edges );
+			signal?.throwIfAborted();
 
 		}
 
 		edges = edges.filter( e => ! isYProjectedLineDegenerate( e ) );
-
-		edges.sort( ( a, b ) => {
-
-			const uuidA = a.mesh.uuid;
-			const uuidB = b.mesh.uuid;
-			if ( uuidA === uuidB ) {
-
-				return 0;
-
-			} else {
-
-				return uuidA < uuidB ? - 1 : 1;
-
-			}
-
-		} );
 
 		if ( edges.length === 0 ) {
 
 			return new ProjectionResult();
 
 		}
+
+		onProgress( 0, 'Projecting Edges' );
 
 		//
 
@@ -217,7 +220,7 @@ export class ProjectionGenerator {
 			// fire progress
 			if ( onProgress ) {
 
-				onProgress( progress / edges.length );
+				onProgress( progress / edges.length, 'Projecting Edges' );
 
 			}
 

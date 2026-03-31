@@ -15,7 +15,6 @@ import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { MeshBVH, SAH } from 'three-mesh-bvh';
 import { ProjectionGenerator, MeshVisibilityCuller } from 'three-edge-projection/webgpu';
 import { Color } from 'three';
 
@@ -51,6 +50,7 @@ let needsRender = false;
 let renderer, camera, scene, gui, controls;
 let model, projection, drawThroughProjection, group;
 let outputContainer;
+let abortController;
 
 init();
 
@@ -147,7 +147,13 @@ async function init() {
 
 async function updateEdges() {
 
-	outputContainer.innerText = 'Generating...';
+	if ( abortController ) {
+
+		abortController.abort();
+
+	}
+
+	abortController = new AbortController();
 
 	projection.geometry.dispose();
 	projection.material.dispose();
@@ -171,13 +177,25 @@ async function updateEdges() {
 
 	}
 
-	const result = await generator.generate( input, {
-		onProgress: p => {
+	let result;
+	try {
 
-			outputContainer.innerText = `Generating... ${ ( p * 100 ).toFixed( 2 ) }%`;
+		result = await generator.generate( input, {
+			signal: abortController.signal,
+			onProgress: ( p, msg ) => {
 
-		},
-	} );
+				outputContainer.innerText = `${ msg }... ${ ( p * 100 ).toFixed( 2 ) }%`;
+
+			},
+		} );
+
+	} catch {
+
+		// cancelled
+		return;
+
+	}
+
 	const visGeom = result.visibleEdges.getLineGeometry();
 	const hidGeom = result.hiddenEdges.getLineGeometry();
 	if ( params.perObjectColors ) {

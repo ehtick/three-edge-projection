@@ -3,6 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { generateEdges } from './utils/generateEdges.js';
 import { generateIntersectionEdges } from './utils/generateIntersectionEdges.js';
 import { getAllMeshes } from './utils/getAllMeshes.js';
+import { nextFrame } from './utils/nextFrame.js';
 
 const _BtoA = /* @__PURE__ */ new Matrix4();
 const _toLocalMatrix = /* @__PURE__ */ new Matrix4();
@@ -33,6 +34,21 @@ export class EdgeGenerator {
 		this.iterationTime = currIterationTime;
 
 		return result;
+
+	}
+
+	async getEdgesAsync( ...args ) {
+
+		const task = this.getEdgesGenerator( ...args );
+		let res;
+		while ( ! res || ! res.done ) {
+
+			res = task.next();
+			await nextFrame();
+
+		}
+
+		return res.value;
 
 	}
 
@@ -125,6 +141,21 @@ export class EdgeGenerator {
 		this.iterationTime = currIterationTime;
 
 		return result;
+
+	}
+
+	async getIntersectionEdgesAsync( ...args ) {
+
+		const task = this.getEdgesGenerator( ...args );
+		let res;
+		while ( ! res || ! res.done ) {
+
+			res = task.next();
+			await nextFrame();
+
+		}
+
+		return res.value;
 
 	}
 
