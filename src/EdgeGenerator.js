@@ -146,7 +146,7 @@ export class EdgeGenerator {
 
 	async getIntersectionEdgesAsync( ...args ) {
 
-		const task = this.getEdgesGenerator( ...args );
+		const task = this.getIntersectionEdgesGenerator( ...args );
 		let res;
 		while ( ! res || ! res.done ) {
 
