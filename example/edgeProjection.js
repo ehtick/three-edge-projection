@@ -168,7 +168,7 @@ async function init() {
 
 	// camera setup
 	camera = new PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.01, 1e3 );
-	camera.position.setScalar( 3.5 );//.multiplyScalar( 10 );
+	camera.position.setScalar( 3.5 );
 	camera.updateProjectionMatrix();
 
 	needsRender = true;
