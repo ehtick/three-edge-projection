@@ -99,7 +99,7 @@ export class EdgeGenerator {
 				}
 
 				const results = yield* generateEdges( mesh.geometry, [], {
-					projectionDirection: localProjection,
+					matrix: mesh.matrixWorld,
 					thresholdAngle: thresholdAngle,
 					iterationTime: iterationTime,
 				} );

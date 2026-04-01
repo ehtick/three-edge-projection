@@ -8,11 +8,12 @@ const _v0 = /* @__PURE__ */ new Vector3();
 const _v1 = /* @__PURE__ */ new Vector3();
 const _normal = /* @__PURE__ */ new Vector3();
 const _triangle = /* @__PURE__ */ new Triangle();
+const _triangleLocal = /* @__PURE__ */ new Triangle();
 
 export function* generateEdges( geometry, target = [], options = {} ) {
 
 	const {
-		projectionDirection = UP_VECTOR,
+		matrix = null,
 		thresholdAngle = 1,
 		iterationTime = 30,
 	} = options;
@@ -54,11 +55,10 @@ export function* generateEdges( geometry, target = [], options = {} ) {
 
 		}
 
-		const { a, b, c } = _triangle;
-		a.fromBufferAttribute( positionAttr, indexArr[ 0 ] );
-		b.fromBufferAttribute( positionAttr, indexArr[ 1 ] );
-		c.fromBufferAttribute( positionAttr, indexArr[ 2 ] );
-		_triangle.getNormal( _normal );
+		const { a, b, c } = _triangleLocal;
+		_triangleLocal.a.fromBufferAttribute( positionAttr, indexArr[ 0 ] );
+		_triangleLocal.b.fromBufferAttribute( positionAttr, indexArr[ 1 ] );
+		_triangleLocal.c.fromBufferAttribute( positionAttr, indexArr[ 2 ] );
 
 		// create hashes for the edge from the vertices
 		hashes[ 0 ] = `${ Math.round( a.x * precision ) },${ Math.round( a.y * precision ) },${ Math.round( a.z * precision ) }`;
@@ -72,6 +72,21 @@ export function* generateEdges( geometry, target = [], options = {} ) {
 
 		}
 
+		// generate a world-space normal
+		if ( matrix ) {
+
+			_triangle.copy( _triangleLocal );
+			_triangle.a.applyMatrix4( matrix );
+			_triangle.b.applyMatrix4( matrix );
+			_triangle.c.applyMatrix4( matrix );
+			_triangle.getNormal( _normal );
+
+		} else {
+
+			_triangleLocal.getNormal( _normal );
+
+		}
+
 		// iterate over every edge
 		for ( let j = 0; j < 3; j ++ ) {
 
@@ -79,8 +94,8 @@ export function* generateEdges( geometry, target = [], options = {} ) {
 			const jNext = ( j + 1 ) % 3;
 			const vecHash0 = hashes[ j ];
 			const vecHash1 = hashes[ jNext ];
-			const v0 = _triangle[ vertKeys[ j ] ];
-			const v1 = _triangle[ vertKeys[ jNext ] ];
+			const v0 = _triangleLocal[ vertKeys[ j ] ];
+			const v1 = _triangleLocal[ vertKeys[ jNext ] ];
 
 			const hash = `${ vecHash0 }_${ vecHash1 }`;
 			const reverseHash = `${ vecHash1 }_${ vecHash0 }`;
@@ -94,18 +109,13 @@ export function* generateEdges( geometry, target = [], options = {} ) {
 
 				// get the dot product relative to the projection angle and
 				// add an epsilon for nearly vertical triangles
-				let projectionThreshold = false;
-				if ( projectionDirection !== null ) {
+				let normDot = UP_VECTOR.dot( _normal );
+				normDot = Math.abs( normDot ) < EPSILON ? 0 : normDot;
 
-					let normDot = projectionDirection.dot( _normal );
-					normDot = Math.abs( normDot ) < EPSILON ? 0 : normDot;
+				let otherDot = UP_VECTOR.dot( otherNormal );
+				otherDot = Math.abs( otherDot ) < EPSILON ? 0 : otherDot;
 
-					let otherDot = projectionDirection.dot( otherNormal );
-					otherDot = Math.abs( otherDot ) < EPSILON ? 0 : otherDot;
-
-					projectionThreshold = Math.sign( normDot ) !== Math.sign( otherDot );
-
-				}
+				const projectionThreshold = Math.sign( normDot ) !== Math.sign( otherDot );
 
 				if ( meetsThreshold || projectionThreshold ) {
 
