@@ -77,6 +77,8 @@ scene.add( mesh );
 
 # API
 
+See [API.md](./API.md) for full API documentation.
+
 ## EdgeSet
 
 ### getLineGeometry

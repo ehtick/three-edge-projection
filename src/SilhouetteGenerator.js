@@ -121,11 +121,12 @@ export class SilhouetteGenerator {
 
 	/**
 	 * Generate the silhouette geometry with a promise-style API.
+	 * @async
 	 * @param {BufferGeometry} geometry
 	 * @param {Object} [options]
 	 * @param {SilhouetteProgressCallback} [options.onProgress]
 	 * @param {AbortSignal} [options.signal]
-	 * @returns {Promise<BufferGeometry|Array<BufferGeometry>>}
+	 * @returns {BufferGeometry|Array<BufferGeometry>}
 	 */
 	generateAsync( geometry, options = {} ) {
 

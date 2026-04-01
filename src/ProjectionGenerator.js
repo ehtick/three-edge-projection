@@ -288,11 +288,12 @@ export class ProjectionGenerator {
 
 	/**
 	 * Generate the geometry with a promise-style API.
+	 * @async
 	 * @param {Object3D|BufferGeometry|Array<Object3D>} geometry
 	 * @param {Object} [options]
 	 * @param {ProjectionProgressCallback} [options.onProgress]
 	 * @param {AbortSignal} [options.signal]
-	 * @returns {Promise<ProjectionResult>}
+	 * @returns {ProjectionResult}
 	 */
 	generateAsync( geometry, options = {} ) {
 
