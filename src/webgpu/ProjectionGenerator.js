@@ -1,5 +1,5 @@
 import { IndirectStorageBufferAttribute, StorageBufferAttribute } from 'three/webgpu';
-import { sign, storage } from 'three/tsl';
+import { storage } from 'three/tsl';
 import { getAllMeshes } from '../utils/getAllMeshes.js';
 import { EdgeGenerator } from '../EdgeGenerator.js';
 import { isYProjectedLineDegenerate } from '../utils/triangleLineUtils.js';

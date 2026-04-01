@@ -17,9 +17,10 @@ export const transformBVHBounds = wgslTagFn/* wgsl */`
 				select( bMin[ 1 ], bMax[ 1 ], ( ci & 2u ) != 0u ),
 				select( bMin[ 2 ], bMax[ 2 ], ( ci & 4u ) != 0u )
 			);
-			let wc = ( matrix * vec4f( corner, 1.0 ) ).xyz;
-			wMin = min( wMin, wc );
-			wMax = max( wMax, wc );
+			var wc = matrix * vec4f( corner, 1.0 );
+			wc = wc / wc.w;
+			wMin = min( wMin, wc.xyz );
+			wMax = max( wMax, wc.xyz );
 
 		}
 

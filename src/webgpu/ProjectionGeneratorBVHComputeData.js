@@ -193,9 +193,12 @@ export class ProjectionGeneratorBVHComputeData extends BVHComputeData {
 					let i1 = ${ storage.index }[ ti * 3u + 1u ];
 					let i2 = ${ storage.index }[ ti * 3u + 2u ];
 
-					tri.a = ( matrixWorld * vec4f( ${ storage.attributes }[ i0 ].position.xyz, 1.0 ) ).xyz;
-					tri.b = ( matrixWorld * vec4f( ${ storage.attributes }[ i1 ].position.xyz, 1.0 ) ).xyz;
-					tri.c = ( matrixWorld * vec4f( ${ storage.attributes }[ i2 ].position.xyz, 1.0 ) ).xyz;
+					let ta = matrixWorld * vec4f( ${ storage.attributes }[ i0 ].position.xyz, 1.0 );
+					let tb = matrixWorld * vec4f( ${ storage.attributes }[ i1 ].position.xyz, 1.0 );
+					let tc = matrixWorld * vec4f( ${ storage.attributes }[ i2 ].position.xyz, 1.0 );
+					tri.a = ta.xyz / ta.w;
+					tri.b = tb.xyz / tb.w;
+					tri.c = tc.xyz / tc.w;
 
 					// back-face cull
 					if ( side != ${ DOUBLE_SIDE } ) {

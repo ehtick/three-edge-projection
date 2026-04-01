@@ -1,6 +1,5 @@
 import {
 	Box3,
-	WebGLRenderer,
 	Scene,
 	DirectionalLight,
 	AmbientLight,
@@ -9,33 +8,31 @@ import {
 	LineSegments,
 	LineBasicMaterial,
 	PerspectiveCamera,
+	WebGPURenderer,
 	Vector3,
-} from 'three';
+} from 'three/webgpu';
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { ProjectionGenerator } from 'three-edge-projection';
-import { MeshBVH } from 'three-mesh-bvh';
+import { ProjectionGenerator } from 'three-edge-projection/webgpu';
 
 const params = {
 	displayModel: true,
-	displayProjection: true,
-	displayDrawThrough: false,
-	includeIntersectionEdges: true,
-	generate: () => {
+	displayDrawThroughProjection: false,
+	includeIntersectionEdges: false,
+	regenerate: () => {
 
-		task = updateEdges();
+		updateEdges();
 
 	},
 };
 
-const ANGLE_THRESHOLD = 50;
 let needsRender = false;
 let renderer, camera, scene, gui, controls;
 let model, projection, drawThroughProjection, group, projectionGroup;
 let outputContainer;
-let task = null;
+let abortController;
 
 init();
 
@@ -46,10 +43,11 @@ async function init() {
 	const bgColor = 0xeeeeee;
 
 	// renderer setup
-	renderer = new WebGLRenderer( { antialias: true } );
+	renderer = new WebGPURenderer( { antialias: true } );
 	renderer.setPixelRatio( window.devicePixelRatio );
 	renderer.setSize( window.innerWidth, window.innerHeight );
 	renderer.setClearColor( bgColor, 1 );
+	await renderer.init();
 	document.body.appendChild( renderer.domElement );
 
 	// scene setup
@@ -63,51 +61,33 @@ async function init() {
 	const ambientLight = new AmbientLight( 0xb0bec5, 0.5 );
 	scene.add( ambientLight );
 
+	// load model
 	group = new Group();
 	scene.add( group );
 
-	// load model
 	const gltf = await new GLTFLoader()
 		.setMeshoptDecoder( MeshoptDecoder )
 		.loadAsync( 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/nasa-m2020/Perseverance.glb' );
 	model = gltf.scene;
 
-	// initialize BVHs
-	model.traverse( c => {
-
-		if ( c.geometry && ! c.geometry.boundsTree ) {
-
-			const elCount = c.geometry.index ? c.geometry.index.count : c.geometry.attributes.position.count;
-			c.geometry.groups.forEach( g => {
-
-				if ( g.count === Infinity ) g.count = elCount - g.start;
-
-			} );
-			c.geometry.boundsTree = new MeshBVH( c.geometry );
-
-		}
-
-	} );
-
-	// center model
 	const box = new Box3();
 	box.setFromObject( model, true );
 	box.getCenter( group.position ).multiplyScalar( - 1 );
+	group.position.y = Math.max( 0, - box.min.y ) + 1;
 	group.add( model );
 	group.updateMatrixWorld( true );
 
-	// projection display meshes
-	projection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { color: 0x030303, depthWrite: true } ) );
-	drawThroughProjection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { color: 0xaaaaaa, depthWrite: true } ) );
+	// create projection display meshes
+	projection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { depthWrite: false } ) );
+	drawThroughProjection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { depthWrite: false } ) );
 	drawThroughProjection.renderOrder = - 1;
 	projectionGroup = new Group();
 	projectionGroup.add( projection, drawThroughProjection );
 	scene.add( projectionGroup );
 
 	// camera setup
-	camera = new PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.01, 1e3 );
-	camera.position.set( 3, 2, 3.5 );
-	camera.lookAt( 0, 0, 0 );
+	camera = new PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.01, 100 );
+	camera.position.setScalar( 3.5 );
 	camera.updateProjectionMatrix();
 
 	needsRender = true;
@@ -121,15 +101,14 @@ async function init() {
 	} );
 
 	gui = new GUI();
-	gui.add( params, 'displayModel' ).onChange( () => needsRender = true ).listen();
-	gui.add( params, 'displayProjection' ).onChange( () => needsRender = true );
-	gui.add( params, 'displayDrawThrough' ).onChange( () => needsRender = true );
+	gui.add( params, 'displayModel' ).onChange( () => needsRender = true );
+	gui.add( params, 'displayDrawThroughProjection' ).onChange( () => needsRender = true );
 	gui.add( params, 'includeIntersectionEdges' );
-	gui.add( params, 'generate' );
+	gui.add( params, 'regenerate' );
 
 	render();
 
-	task = updateEdges();
+	updateEdges();
 
 	window.addEventListener( 'resize', function () {
 
@@ -144,34 +123,42 @@ async function init() {
 
 }
 
-async function* updateEdges( runTime = 30 ) {
+async function updateEdges() {
 
-	outputContainer.innerText = 'Generating...';
+	if ( abortController ) {
 
-	// position the projection group based on the camera position
-	const FWD = new Vector3().set( 0, 0, - 1 ).transformDirection( camera.matrixWorld );
-	const distToCenter = - FWD.dot( camera.position ) + 2.2;
+		abortController.abort();
 
-	const v = new Vector3();
-	v.set( 1, 1, 1 ).applyMatrix4( camera.projectionMatrixInverse );
-	v.multiplyScalar( distToCenter / v.z );
+	}
 
-	const SCALE_X = v.x;
-	const SCALE_Y = v.y;
+	abortController = new AbortController();
 
-	projectionGroup.rotation.copy( camera.rotation ).reorder( 'ZYX' );
-	projectionGroup.rotation.x += Math.PI / 2;
-	projectionGroup.scale.set( SCALE_X, 1, SCALE_Y );
-
-	projectionGroup.position.copy( camera.position ).addScaledVector( FWD, distToCenter );
-
-	// dispose existing geometry
 	projection.geometry.dispose();
-	drawThroughProjection.geometry.dispose();
+	projection.material.dispose();
 	projection.geometry = new BufferGeometry();
+
+	drawThroughProjection.geometry.dispose();
+	drawThroughProjection.material.dispose();
 	drawThroughProjection.geometry = new BufferGeometry();
 
-	// construct the generation group
+	needsRender = true;
+
+	const timeStart = window.performance.now();
+	const generator = new ProjectionGenerator( renderer );
+	generator.includeIntersectionEdges = params.includeIntersectionEdges;
+
+	// position the projectionGroup to map NDC output back to a camera-facing plane
+	const FWD = new Vector3( 0, 0, - 1 ).transformDirection( camera.matrixWorld );
+	const distToCenter = - FWD.dot( camera.position ) - 2;
+	const _v = new Vector3( 1, 1, 1 ).applyMatrix4( camera.projectionMatrixInverse );
+	_v.multiplyScalar( distToCenter / _v.z );
+	projectionGroup.rotation.copy( camera.rotation ).reorder( 'ZYX' );
+	projectionGroup.rotation.x += Math.PI / 2;
+	projectionGroup.scale.set( _v.x, 1, _v.y );
+	projectionGroup.position.copy( camera.position ).addScaledVector( FWD, distToCenter );
+
+	// construct the generation group — encodes camera VP matrix so the generator
+	// projects along the camera's view direction instead of world Y
 	const scaleGroup = new Group();
 	const perspectiveGroup = new Group();
 	perspectiveGroup.matrixAutoUpdate = false;
@@ -181,55 +168,63 @@ async function* updateEdges( runTime = 30 ) {
 	const clone = group.clone();
 	perspectiveGroup.add( clone );
 
-	// transform the clone to be relative to the camera
 	clone.matrix
 		.multiplyMatrices( camera.matrixWorldInverse, group.matrixWorld )
 		.decompose( clone.position, clone.quaternion, clone.scale );
 
-	perspectiveGroup.matrix
-		.copy( camera.projectionMatrix );
+	perspectiveGroup.matrix.copy( camera.projectionMatrix );
 
-	scaleGroup.scale.z = camera.far;
 	scaleGroup.scale.x = - 1;
 	scaleGroup.rotation.x = Math.PI / 2;
-
 	scaleGroup.updateMatrixWorld( true );
 
-	// run the projection
-	const timeStart = window.performance.now();
-	const generator = new ProjectionGenerator();
-	generator.iterationTime = runTime;
-	generator.angleThreshold = ANGLE_THRESHOLD;
-	generator.includeIntersectionEdges = params.includeIntersectionEdges;
 
-	const collection = yield* generator.generate( [ scaleGroup ], {
-		onProgress: ( tot, msg, edges ) => {
+	// normalize scale so geometry is in a workable range for the GPU
+	const box = new Box3();
+	box.setFromObject( perspectiveGroup );
+	scaleGroup.scale.z = 5 / ( box.max.y - box.min.y );
+	scaleGroup.position.y = - box.min.y * scaleGroup.scale.z - 0.5;
+	scaleGroup.updateMatrixWorld( true );
+	scene.add( scaleGroup )
+	console.log( box.max, box.min )
 
-			outputContainer.innerText = msg;
-			if ( tot ) outputContainer.innerText += ' ' + ( 100 * tot ).toFixed( 1 ) + '%';
+	const input = [ clone ];
 
-			if ( edges ) {
+	let result;
+	try {
 
-				projection.geometry.dispose();
-				projection.geometry = edges.visibleEdges.getLineGeometry();
-				needsRender = true;
+		result = await generator.generate( input, {
+			signal: abortController.signal,
+			onProgress: ( p, msg ) => {
 
-			}
+				outputContainer.innerText = `${ msg }... ${ ( p * 100 ).toFixed( 2 ) }%`;
 
-		},
-	} );
+			},
+		} );
 
-	// set final geometries
+	} catch {
+
+		// cancelled
+		return;
+
+	}
+
+	const visGeom = result.visibleEdges.getLineGeometry();
+	const hidGeom = result.hiddenEdges.getLineGeometry();
+
 	projection.geometry.dispose();
-	projection.geometry = collection.visibleEdges.getLineGeometry();
+	projection.material.dispose();
+	projection.geometry = visGeom;
+	projection.material = new LineBasicMaterial( { color: 0x030303, depthWrite: false } );
 
 	drawThroughProjection.geometry.dispose();
-	drawThroughProjection.geometry = collection.hiddenEdges.getLineGeometry();
+	drawThroughProjection.material.dispose();
+	drawThroughProjection.geometry = hidGeom;
+	drawThroughProjection.material = new LineBasicMaterial( { color: 0xcacaca, depthWrite: false } );
 
-	const trimTime = window.performance.now() - timeStart;
-	outputContainer.innerText = `Generation time: ${ trimTime.toFixed( 2 ) }ms`;
+	const elapsed = window.performance.now() - timeStart;
+	outputContainer.innerText = `Generation time: ${ elapsed.toFixed( 2 ) }ms`;
 
-	params.displayModel = false;
 	needsRender = true;
 
 }
@@ -238,16 +233,8 @@ function render() {
 
 	requestAnimationFrame( render );
 
-	if ( task ) {
-
-		const res = task.next();
-		if ( res.done ) task = null;
-
-	}
-
 	model.visible = params.displayModel;
-	projection.visible = params.displayProjection;
-	drawThroughProjection.visible = params.displayDrawThrough;
+	drawThroughProjection.visible = params.displayDrawThroughProjection;
 
 	if ( needsRender ) {
 
