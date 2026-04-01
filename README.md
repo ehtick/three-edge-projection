@@ -77,12 +77,14 @@ scene.add( mesh );
 
 # API
 
-## ProjectionEdgeSet
+See [API.md](./API.md) for full API documentation.
 
-### toLineGeometry
+## EdgeSet
+
+### getLineGeometry
 
 ```js
-toLineGeometry( meshes = null: Array<Mesh> ): BufferGeometry
+getLineGeometry( meshes = null: Array<Mesh> ): BufferGeometry
 ```
 
 Returns a new BufferGeometry representing the edges.
@@ -95,7 +97,7 @@ Pass a list of meshes in to extract edges from a specific subset of meshes in th
 getRangeForMesh( mesh: Mesh ): { start: number, count: number }
 ```
 
-Returns the range of vertices associated with the given mesh in the geometry returned from [toLineGeometry](#tolinegeometry). The `start` value is only relevant if lines are generated with the default order and set of meshes.
+Returns the range of vertices associated with the given mesh in the geometry returned from [getLineGeometry](#getlinegeometry). The `start` value is only relevant if lines are generated with the default order and set of meshes.
 
 Can be used to add extra vertex attributes in a geometry associated with a specific subrange of the geometry.
 

@@ -1,3 +1,5 @@
+/** @import { Object3D, BufferGeometry } from 'three' */
+/** @import { WebGPURenderer } from 'three/webgpu' */
 import { IndirectStorageBufferAttribute, StorageBufferAttribute } from 'three/webgpu';
 import { sign, storage } from 'three/tsl';
 import { getAllMeshes } from '../utils/getAllMeshes.js';
@@ -18,18 +20,58 @@ const MAX_BUFFER_SIZE = 134217728;
 
 const MAX_OVERLAPS_COUNT = Math.floor( MAX_BUFFER_SIZE / ( overlapRecordStruct.getLength() * 4 ) );
 
+/**
+ * @callback ProjectionProgressCallback
+ * @param {number} percent
+ * @param {string} message
+ */
+
+/**
+ * Takes the WebGPURenderer instance used to run compute kernels.
+ * @param {WebGPURenderer} renderer
+ */
 export class ProjectionGenerator {
 
 	constructor( renderer ) {
 
 		this.renderer = renderer;
+
+		/**
+		 * The threshold angle in degrees at which edges are generated.
+		 * @type {number}
+		 */
 		this.angleThreshold = 50;
+
+		/**
+		 * The number of edges to process in one compute kernel pass. Larger values can process
+		 * faster but may cause internal buffers to overflow, resulting in extra kernel executions,
+		 * taking more time.
+		 * @type {number}
+		 */
 		this.batchSize = 100000;
+
+		/**
+		 * Whether to generate edges representing the intersections between triangles.
+		 * @type {boolean}
+		 */
 		this.includeIntersectionEdges = true;
+
+		/**
+		 * How long to spend generating edges.
+		 * @type {number}
+		 */
 		this.iterationTime = 30;
 
 	}
 
+	/**
+	 * Asynchronously generate the edge geometry result.
+	 * @param {Object3D|BufferGeometry|Array<Object3D>} scene
+	 * @param {Object} [options]
+	 * @param {ProjectionProgressCallback} [options.onProgress]
+	 * @param {AbortSignal} [options.signal]
+	 * @returns {Promise<ProjectionResult>}
+	 */
 	async generate( scene, options = {} ) {
 
 		const { renderer, angleThreshold, includeIntersectionEdges, batchSize, iterationTime } = this;

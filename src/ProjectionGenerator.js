@@ -1,3 +1,4 @@
+/** @import { Object3D } from 'three' */
 import {
 	BufferGeometry,
 	Vector3,
@@ -52,7 +53,10 @@ function toLineGeometry( edges, ranges = null ) {
 
 }
 
-class EdgeSet {
+/**
+ * Set of projected edges produced by ProjectionGenerator.
+ */
+export class EdgeSet {
 
 	constructor() {
 
@@ -61,6 +65,14 @@ class EdgeSet {
 
 	}
 
+	/**
+	 * Returns a new BufferGeometry representing the edges.
+	 *
+	 * Pass a list of meshes in to extract edges from a specific subset of meshes in the given
+	 * order. Returns all edges if null.
+	 * @param {Array<Mesh>|null} [meshes=null]
+	 * @returns {BufferGeometry}
+	 */
 	getLineGeometry( meshes = null ) {
 
 		const activeMeshes = meshes !== null ? meshes : Array.from( this.meshToSegments.keys() );
@@ -80,6 +92,16 @@ class EdgeSet {
 
 	}
 
+	/**
+	 * Returns the range of vertices associated with the given mesh in the geometry returned from
+	 * getLineGeometry. The `start` value is only relevant if lines are generated with the default
+	 * order and set of meshes.
+	 *
+	 * Can be used to add extra vertex attributes in a geometry associated with a specific subrange
+	 * of the geometry.
+	 * @param {Mesh} mesh
+	 * @returns {{ start: number, count: number }|null}
+	 */
 	getRangeForMesh( mesh ) {
 
 		if ( ! this._rangeCache ) {
@@ -101,11 +123,17 @@ class EdgeSet {
 
 }
 
+/**
+ * Result object returned by ProjectionGenerator containing visible and hidden edge sets.
+ */
 export class ProjectionResult {
 
 	constructor() {
 
+		/** @type {EdgeSet} */
 		this.visibleEdges = new EdgeSet();
+
+		/** @type {EdgeSet} */
 		this.hiddenEdges = new EdgeSet();
 
 	}
@@ -225,16 +253,48 @@ class ProjectedEdgeCollector {
 
 }
 
+/**
+ * @callback ProjectionProgressCallback
+ * @param {number} percent
+ * @param {string} message
+ */
+
+/**
+ * Utility for generating 2D projections of 3D geometry.
+ */
 export class ProjectionGenerator {
 
 	constructor() {
 
+		/**
+		 * How long to spend trimming edges before yielding.
+		 * @type {number}
+		 */
 		this.iterationTime = 30;
+
+		/**
+		 * The threshold angle in degrees at which edges are generated.
+		 * @type {number}
+		 */
 		this.angleThreshold = 50;
+
+		/**
+		 * Whether to generate edges representing the intersections between triangles.
+		 * @type {boolean}
+		 */
 		this.includeIntersectionEdges = true;
 
 	}
 
+	/**
+	 * Generate the geometry with a promise-style API.
+	 * @async
+	 * @param {Object3D|BufferGeometry|Array<Object3D>} geometry
+	 * @param {Object} [options]
+	 * @param {ProjectionProgressCallback} [options.onProgress]
+	 * @param {AbortSignal} [options.signal]
+	 * @returns {ProjectionResult}
+	 */
 	generateAsync( geometry, options = {} ) {
 
 		return new Promise( ( resolve, reject ) => {
@@ -270,6 +330,14 @@ export class ProjectionGenerator {
 
 	}
 
+	/**
+	 * Generate the edge geometry result using a generator function.
+	 * @param {Object3D|BufferGeometry|Array<Object3D>} scene
+	 * @param {Object} [options]
+	 * @param {ProjectionProgressCallback} [options.onProgress]
+	 * @yields {void}
+	 * @returns {ProjectionResult}
+	 */
 	*generate( scene, options = {} ) {
 
 		const { iterationTime, angleThreshold, includeIntersectionEdges } = this;
