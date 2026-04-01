@@ -149,7 +149,7 @@ async function updateEdges() {
 
 	// position the projectionGroup to map NDC output back to a camera-facing plane
 	const FWD = new Vector3( 0, 0, - 1 ).transformDirection( camera.matrixWorld );
-	const distToCenter = - FWD.dot( camera.position ) - 2;
+	const distToCenter = - FWD.dot( camera.position ) + 1.5;
 	const _v = new Vector3( 1, 1, 1 ).applyMatrix4( camera.projectionMatrixInverse );
 	_v.multiplyScalar( distToCenter / _v.z );
 	projectionGroup.rotation.copy( camera.rotation ).reorder( 'ZYX' );
@@ -178,15 +178,12 @@ async function updateEdges() {
 	scaleGroup.rotation.x = Math.PI / 2;
 	scaleGroup.updateMatrixWorld( true );
 
-
 	// normalize scale so geometry is in a workable range for the GPU
 	const box = new Box3();
 	box.setFromObject( perspectiveGroup );
 	scaleGroup.scale.z = 5 / ( box.max.y - box.min.y );
 	scaleGroup.position.y = - box.min.y * scaleGroup.scale.z - 0.5;
 	scaleGroup.updateMatrixWorld( true );
-	scene.add( scaleGroup )
-	console.log( box.max, box.min )
 
 	const input = [ clone ];
 
