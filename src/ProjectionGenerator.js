@@ -53,6 +53,9 @@ function toLineGeometry( edges, ranges = null ) {
 
 }
 
+/**
+ * Set of projected edges produced by ProjectionGenerator.
+ */
 export class EdgeSet {
 
 	constructor() {
@@ -120,6 +123,9 @@ export class EdgeSet {
 
 }
 
+/**
+ * Result object returned by ProjectionGenerator containing visible and hidden edge sets.
+ */
 export class ProjectionResult {
 
 	constructor() {
@@ -253,6 +259,9 @@ class ProjectedEdgeCollector {
  * @param {string} message
  */
 
+/**
+ * Utility for generating 2D projections of 3D geometry.
+ */
 export class ProjectionGenerator {
 
 	constructor() {

@@ -5,6 +5,10 @@ const _line = new Line3();
 const _target = new Line3();
 const _vec = new Vector3();
 const EPS = 1e-16;
+
+/**
+ * Utility for generating the line segments produced by a planar intersection with geometry.
+ */
 export class PlanarIntersectionGenerator {
 
 	constructor() {

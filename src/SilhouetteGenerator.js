@@ -80,6 +80,10 @@ export const OUTPUT_BOTH = 2;
  * @param {number} percent
  */
 
+/**
+ * Used for generating a projected silhouette of a geometry using the clipper2-js project. Performing
+ * these operations can be extremely slow with more complex geometry and not always yield a stable result.
+ */
 export class SilhouetteGenerator {
 
 	constructor() {
