@@ -121,7 +121,7 @@ async function init() {
 	} );
 
 	gui = new GUI();
-	gui.add( params, 'displayModel' ).onChange( () => needsRender = true );
+	gui.add( params, 'displayModel' ).onChange( () => needsRender = true ).listen();
 	gui.add( params, 'displayProjection' ).onChange( () => needsRender = true );
 	gui.add( params, 'displayDrawThrough' ).onChange( () => needsRender = true );
 	gui.add( params, 'includeIntersectionEdges' );
@@ -177,6 +177,7 @@ async function* updateEdges( runTime = 30 ) {
 	perspectiveGroup.matrixAutoUpdate = false;
 	scaleGroup.add( perspectiveGroup );
 
+	model.visible = true;
 	const clone = group.clone();
 	perspectiveGroup.add( clone );
 
@@ -228,6 +229,7 @@ async function* updateEdges( runTime = 30 ) {
 	const trimTime = window.performance.now() - timeStart;
 	outputContainer.innerText = `Generation time: ${ trimTime.toFixed( 2 ) }ms`;
 
+	params.displayModel = false;
 	needsRender = true;
 
 }
