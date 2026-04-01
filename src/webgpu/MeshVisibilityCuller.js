@@ -1,3 +1,5 @@
+/** @import { Object3D } from 'three' */
+/** @import { WebGPURenderer } from 'three/webgpu' */
 import {
 	Box3,
 	Vector3,
@@ -27,17 +29,37 @@ function decodeId( buffer, index ) {
 
 }
 
+/**
+ * Utility for determining visible geometry from a top down orthographic perspective. This can
+ * be run before performing projection generation to reduce the complexity of the operation at
+ * the cost of potentially missing small details.
+ *
+ * Takes the WebGPURenderer instance used to render.
+ * @param {WebGPURenderer} renderer
+ * @param {Object} [options]
+ * @param {number} [options.pixelsPerMeter=0.1]
+ */
 export class MeshVisibilityCuller {
 
 	constructor( renderer, options = {} ) {
 
 		const { pixelsPerMeter = 0.1 } = options;
 
+		/**
+		 * The size of a pixel on a single dimension. If this results in a texture larger than what
+		 * the graphics context can provide then the rendering is tiled.
+		 * @type {number}
+		 */
 		this.pixelsPerMeter = pixelsPerMeter;
 		this.renderer = renderer;
 
 	}
 
+	/**
+	 * Returns the set of meshes that are visible within the given object.
+	 * @param {Object3D|Array<Object3D>} object
+	 * @returns {Promise<Array<Object3D>>}
+	 */
 	async cull( objects ) {
 
 		objects = getAllMeshes( objects );

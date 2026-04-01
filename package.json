@@ -57,6 +57,7 @@
     "@vitest/eslint-plugin": "^1.1.22",
     "eslint": "^9.0.0",
     "eslint-config-mdcs": "^5.0.0",
+    "eslint-plugin-jsdoc": "^62.8.1",
     "globals": "^16.5.0",
     "three": ">=0.183.0",
     "three-mesh-bvh": ">=0.9.9",

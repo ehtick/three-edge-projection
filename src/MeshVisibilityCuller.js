@@ -1,3 +1,4 @@
+/** @import { WebGLRenderer, Object3D } from 'three' */
 import {
 	ShaderMaterial,
 	GLSL3,
@@ -31,17 +32,37 @@ function decodeId( buffer, index ) {
 
 // TODO: WebGPU or occlusion queries would let us accelerate this. Ideally would we "contract" the depth buffer by one pixel by
 // taking the lowest value from all surrounding pixels in order to avoid mesh misses.
+/**
+ * Utility for determining visible geometry from a top down orthographic perspective. This can
+ * be run before performing projection generation to reduce the complexity of the operation at
+ * the cost of potentially missing small details.
+ *
+ * Constructor for the visibility culler that takes the renderer to use for culling.
+ * @param {WebGLRenderer} renderer
+ * @param {Object} [options]
+ * @param {number} [options.pixelsPerMeter=0.1]
+ */
 export class MeshVisibilityCuller {
 
 	constructor( renderer, options = {} ) {
 
 		const { pixelsPerMeter = 0.1 } = options;
 
+		/**
+		 * The size of a pixel on a single dimension. If this results in a texture larger than what
+		 * the graphics context can provide then the rendering is tiled.
+		 * @type {number}
+		 */
 		this.pixelsPerMeter = pixelsPerMeter;
 		this.renderer = renderer;
 
 	}
 
+	/**
+	 * Returns the set of meshes that are visible within the given object.
+	 * @param {Object3D|Array<Object3D>} object
+	 * @returns {Promise<Array<Object3D>>}
+	 */
 	async cull( objects ) {
 
 		objects = getAllMeshes( objects );

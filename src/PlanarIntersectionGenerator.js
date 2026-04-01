@@ -9,10 +9,19 @@ export class PlanarIntersectionGenerator {
 
 	constructor() {
 
+		/**
+		 * Plane that defaults to y up plane at the origin.
+		 * @type {Plane}
+		 */
 		this.plane = new Plane( new Vector3( 0, 1, 0 ), 0 );
 
 	}
 
+	/**
+	 * Generates a geometry of the resulting line segments from the planar intersection.
+	 * @param {MeshBVH|BufferGeometry} geometry
+	 * @returns {BufferGeometry}
+	 */
 	generate( bvh ) {
 
 		const { plane } = this;
