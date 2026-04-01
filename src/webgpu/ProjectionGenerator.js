@@ -21,6 +21,12 @@ const MAX_BUFFER_SIZE = 134217728;
 const MAX_OVERLAPS_COUNT = Math.floor( MAX_BUFFER_SIZE / ( overlapRecordStruct.getLength() * 4 ) );
 
 /**
+ * @callback ProjectionProgressCallback
+ * @param {number} percent
+ * @param {string} message
+ */
+
+/**
  * Takes the WebGPURenderer instance used to run compute kernels.
  * @param {WebGPURenderer} renderer
  */
@@ -62,7 +68,7 @@ export class ProjectionGenerator {
 	 * Asynchronously generate the edge geometry result.
 	 * @param {Object3D|BufferGeometry|Array<Object3D>} scene
 	 * @param {Object} [options]
-	 * @param {( percent: number, message: string ) => void} [options.onProgress]
+	 * @param {ProjectionProgressCallback} [options.onProgress]
 	 * @param {AbortSignal} [options.signal]
 	 * @returns {Promise<ProjectionResult>}
 	 */

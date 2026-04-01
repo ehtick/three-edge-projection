@@ -75,6 +75,11 @@ export const OUTPUT_LINE_SEGMENTS = 1;
 /** @type {number} */
 export const OUTPUT_BOTH = 2;
 
+/**
+ * @callback SilhouetteProgressCallback
+ * @param {number} percent
+ */
+
 export class SilhouetteGenerator {
 
 	constructor() {
@@ -114,7 +119,7 @@ export class SilhouetteGenerator {
 	 * Generate the silhouette geometry with a promise-style API.
 	 * @param {BufferGeometry} geometry
 	 * @param {Object} [options]
-	 * @param {( percent: number ) => void} [options.onProgress]
+	 * @param {SilhouetteProgressCallback} [options.onProgress]
 	 * @param {AbortSignal} [options.signal]
 	 * @returns {Promise<BufferGeometry|Array<BufferGeometry>>}
 	 */
@@ -157,8 +162,8 @@ export class SilhouetteGenerator {
 	 * Generate the geometry using a generator function.
 	 * @param {BufferGeometry} geometry
 	 * @param {Object} [options]
-	 * @param {( percent: number ) => void} [options.onProgress]
-	 * @yields
+	 * @param {SilhouetteProgressCallback} [options.onProgress]
+	 * @yields {void}
 	 * @returns {BufferGeometry|Array<BufferGeometry>}
 	 */
 	*generate( geometry, options = {} ) {

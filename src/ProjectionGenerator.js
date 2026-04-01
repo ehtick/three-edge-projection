@@ -247,6 +247,12 @@ class ProjectedEdgeCollector {
 
 }
 
+/**
+ * @callback ProjectionProgressCallback
+ * @param {number} percent
+ * @param {string} message
+ */
+
 export class ProjectionGenerator {
 
 	constructor() {
@@ -275,7 +281,7 @@ export class ProjectionGenerator {
 	 * Generate the geometry with a promise-style API.
 	 * @param {Object3D|BufferGeometry|Array<Object3D>} geometry
 	 * @param {Object} [options]
-	 * @param {( percent: number, message: string ) => void} [options.onProgress]
+	 * @param {ProjectionProgressCallback} [options.onProgress]
 	 * @param {AbortSignal} [options.signal]
 	 * @returns {Promise<ProjectionResult>}
 	 */
@@ -318,8 +324,8 @@ export class ProjectionGenerator {
 	 * Generate the edge geometry result using a generator function.
 	 * @param {Object3D|BufferGeometry|Array<Object3D>} scene
 	 * @param {Object} [options]
-	 * @param {( percent: number, message: string ) => void} [options.onProgress]
-	 * @yields
+	 * @param {ProjectionProgressCallback} [options.onProgress]
+	 * @yields {void}
 	 * @returns {ProjectionResult}
 	 */
 	*generate( scene, options = {} ) {
