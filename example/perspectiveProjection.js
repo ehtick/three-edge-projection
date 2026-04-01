@@ -9,21 +9,20 @@ import {
 	LineSegments,
 	LineBasicMaterial,
 	PerspectiveCamera,
-	Matrix4,
 	Vector3,
 } from 'three';
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { ProjectionGenerator } from '..';
-import { MeshBVH, SAH } from 'three-mesh-bvh';
+import { ProjectionGenerator } from 'three-edge-projection';
+import { MeshBVH } from 'three-mesh-bvh';
 
 const params = {
 	displayModel: true,
 	displayProjection: true,
 	displayDrawThrough: false,
-	includeIntersectionEdges: false,
+	includeIntersectionEdges: true,
 	generate: () => {
 
 		task = updateEdges();
@@ -34,15 +33,9 @@ const params = {
 const ANGLE_THRESHOLD = 50;
 let needsRender = false;
 let renderer, camera, scene, gui, controls;
-let model, projection, drawThroughProjection, group;
+let model, projection, drawThroughProjection, group, projectionGroup;
 let outputContainer;
 let task = null;
-
-// module-level temporaries
-const _dir = /* @__PURE__ */ new Vector3();
-const _box = /* @__PURE__ */ new Box3();
-const _VP = /* @__PURE__ */ new Matrix4();
-const _R = /* @__PURE__ */ new Matrix4();
 
 init();
 
@@ -90,7 +83,7 @@ async function init() {
 				if ( g.count === Infinity ) g.count = elCount - g.start;
 
 			} );
-			c.geometry.boundsTree = new MeshBVH( c.geometry, { maxLeafSize: 1, strategy: SAH } );
+			c.geometry.boundsTree = new MeshBVH( c.geometry );
 
 		}
 
@@ -104,10 +97,12 @@ async function init() {
 	group.updateMatrixWorld( true );
 
 	// projection display meshes
-	projection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { color: 0x030303, depthWrite: false } ) );
-	drawThroughProjection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { color: 0xaaaaaa, depthWrite: false } ) );
+	projection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { color: 0x030303, depthWrite: true } ) );
+	drawThroughProjection = new LineSegments( new BufferGeometry(), new LineBasicMaterial( { color: 0xaaaaaa, depthWrite: true } ) );
 	drawThroughProjection.renderOrder = - 1;
-	scene.add( projection, drawThroughProjection );
+	projectionGroup = new Group();
+	projectionGroup.add( projection, drawThroughProjection );
+	scene.add( projectionGroup );
 
 	// camera setup
 	camera = new PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.01, 1e3 );
@@ -134,6 +129,8 @@ async function init() {
 
 	render();
 
+	task = updateEdges();
+
 	window.addEventListener( 'resize', function () {
 
 		camera.aspect = window.innerWidth / window.innerHeight;
@@ -151,6 +148,23 @@ async function* updateEdges( runTime = 30 ) {
 
 	outputContainer.innerText = 'Generating...';
 
+	// position the projection group based on the camera position
+	const FWD = new Vector3().set( 0, 0, - 1 ).transformDirection( camera.matrixWorld );
+	const distToCenter = - FWD.dot( camera.position ) + 2.2;
+
+	const v = new Vector3();
+	v.set( 1, 1, 1 ).applyMatrix4( camera.projectionMatrixInverse );
+	v.multiplyScalar( distToCenter / v.z );
+
+	const SCALE_X = v.x;
+	const SCALE_Y = v.y;
+
+	projectionGroup.rotation.copy( camera.rotation ).reorder( 'ZYX' );
+	projectionGroup.rotation.x += Math.PI / 2;
+	projectionGroup.scale.set( SCALE_X, 1, SCALE_Y );
+
+	projectionGroup.position.copy( camera.position ).addScaledVector( FWD, distToCenter );
+
 	// dispose existing geometry
 	projection.geometry.dispose();
 	drawThroughProjection.geometry.dispose();
@@ -164,7 +178,6 @@ async function* updateEdges( runTime = 30 ) {
 	scaleGroup.add( perspectiveGroup );
 
 	const clone = group.clone();
-	clone.visible = true;
 	perspectiveGroup.add( clone );
 
 	// transform the clone to be relative to the camera
@@ -175,26 +188,14 @@ async function* updateEdges( runTime = 30 ) {
 	perspectiveGroup.matrix
 		.copy( camera.projectionMatrix );
 
-	scaleGroup.scale.z = camera.far * 0.1;
+	scaleGroup.scale.z = camera.far;
+	scaleGroup.scale.x = - 1;
 	scaleGroup.rotation.x = Math.PI / 2;
 
-
-	const b = new Box3();
-	b.setFromObject( scaleGroup );
-	// scaleGroup.position.z = - b.min.z;
 	scaleGroup.updateMatrixWorld( true );
-	// console.log( b.min.z )
 
-	// // console.log( camera.near, camera.far )
-
-	// scene.add( scaleGroup );
-	needsRender = true;
-	// return;
-
-
-
+	// run the projection
 	const timeStart = window.performance.now();
-
 	const generator = new ProjectionGenerator();
 	generator.iterationTime = runTime;
 	generator.angleThreshold = ANGLE_THRESHOLD;
@@ -220,6 +221,7 @@ async function* updateEdges( runTime = 30 ) {
 	// set final geometries
 	projection.geometry.dispose();
 	projection.geometry = collection.visibleEdges.getLineGeometry();
+
 	drawThroughProjection.geometry.dispose();
 	drawThroughProjection.geometry = collection.hiddenEdges.getLineGeometry();
 
