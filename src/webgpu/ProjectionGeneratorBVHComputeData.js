@@ -1,7 +1,6 @@
-import { BackSide, BufferAttribute, BufferGeometry, DoubleSide, FrontSide, SkinnedMesh } from 'three';
+import { BackSide, DoubleSide, FrontSide } from 'three';
 import { StructTypeNode } from 'three/webgpu';
 import { BVHComputeData } from './lib/BVHComputeData.js';
-import { MeshBVH, SAH, SkinnedMeshBVH } from 'three-mesh-bvh';
 import { wgslTagFn } from './lib/nodes/WGSLTagFnNode.js';
 import { bvhNodeBoundsStruct } from './lib/wgsl/structs.wgsl.js';
 import { transformBVHBounds } from './nodes/utils.wgsl.js';

@@ -1,4 +1,4 @@
-import { Vector3, Triangle, MathUtils } from 'three';
+import { Vector3, Triangle, MathUtils, Matrix4 } from 'three';
 import { ProjectionEdge } from './ProjectionEdge.js';
 
 // Modified version of js EdgesGeometry logic to handle silhouette edges
@@ -9,6 +9,8 @@ const _v1 = /* @__PURE__ */ new Vector3();
 const _normal = /* @__PURE__ */ new Vector3();
 const _triangle = /* @__PURE__ */ new Triangle();
 const _triangleLocal = /* @__PURE__ */ new Triangle();
+const _localProjection = /* @__PURE__ */ new Vector3();
+const _invMat = /* @__PURE__ */ new Matrix4();
 
 export function* generateEdges( geometry, target = [], options = {} ) {
 
@@ -17,6 +19,26 @@ export function* generateEdges( geometry, target = [], options = {} ) {
 		thresholdAngle = 1,
 		iterationTime = 30,
 	} = options;
+
+	_localProjection.copy( UP_VECTOR );
+
+	let isAffine = true;
+	if ( matrix ) {
+
+		isAffine =
+			matrix.elements[ 3 ] === 0 &&
+			matrix.elements[ 7 ] === 0 &&
+			matrix.elements[ 11 ] === 0 &&
+			matrix.elements[ 15 ] === 1;
+
+		if ( isAffine ) {
+
+			_invMat.copy( matrix ).invert();
+			_localProjection.transformDirection( _invMat );
+
+		}
+
+	}
 
 	const precisionPoints = 4;
 	const precision = Math.pow( 10, precisionPoints );
@@ -72,8 +94,9 @@ export function* generateEdges( geometry, target = [], options = {} ) {
 
 		}
 
-		// generate a world-space normal
-		if ( matrix ) {
+		// compute normal — fast path uses local-space normal with pre-transformed
+		// projection direction; slow path transforms vertices for world-space normal
+		if ( matrix && ! isAffine ) {
 
 			_triangle.copy( _triangleLocal );
 			_triangle.a.applyMatrix4( matrix );
@@ -109,10 +132,11 @@ export function* generateEdges( geometry, target = [], options = {} ) {
 
 				// get the dot product relative to the projection angle and
 				// add an epsilon for nearly vertical triangles
-				let normDot = UP_VECTOR.dot( _normal );
+				const _projDir = _localProjection;
+				let normDot = _projDir.dot( _normal );
 				normDot = Math.abs( normDot ) < EPSILON ? 0 : normDot;
 
-				let otherDot = UP_VECTOR.dot( otherNormal );
+				let otherDot = _projDir.dot( otherNormal );
 				otherDot = Math.abs( otherDot ) < EPSILON ? 0 : otherDot;
 
 				const projectionThreshold = Math.sign( normDot ) !== Math.sign( otherDot );
