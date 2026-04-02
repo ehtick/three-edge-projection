@@ -10,15 +10,18 @@ import {
 	PerspectiveCamera,
 	WebGPURenderer,
 	Vector3,
+	MeshBasicMaterial,
 } from 'three/webgpu';
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { ProjectionGenerator } from 'three-edge-projection/webgpu';
+import { ProjectionGenerator as ProjectionGeneratorCompute } from 'three-edge-projection/webgpu';
+import { ProjectionGenerator } from 'three-edge-projection';
 
 const params = {
 	displayModel: true,
+	webGPU: true,
 	displayDrawThroughProjection: false,
 	includeIntersectionEdges: false,
 	regenerate: () => {
@@ -73,7 +76,7 @@ async function init() {
 	const box = new Box3();
 	box.setFromObject( model, true );
 	box.getCenter( group.position ).multiplyScalar( - 1 );
-	group.position.y = Math.max( 0, - box.min.y ) + 1;
+	group.position.y = Math.max( 0, - box.min.y );
 	group.add( model );
 	group.updateMatrixWorld( true );
 
@@ -101,10 +104,14 @@ async function init() {
 	} );
 
 	gui = new GUI();
-	gui.add( params, 'displayModel' ).onChange( () => needsRender = true );
-	gui.add( params, 'displayDrawThroughProjection' ).onChange( () => needsRender = true );
-	gui.add( params, 'includeIntersectionEdges' );
-	gui.add( params, 'regenerate' );
+	const displayFolder = gui.addFolder( 'Display' );
+	displayFolder.add( params, 'displayModel' ).onChange( () => needsRender = true ).listen();
+	displayFolder.add( params, 'displayDrawThroughProjection' ).onChange( () => needsRender = true );
+
+	const generationFolder = gui.addFolder( 'Generation' );
+	generationFolder.add( params, 'webGPU' );
+	generationFolder.add( params, 'includeIntersectionEdges' );
+	generationFolder.add( params, 'regenerate' );
 
 	render();
 
@@ -144,8 +151,6 @@ async function updateEdges() {
 	needsRender = true;
 
 	const timeStart = window.performance.now();
-	const generator = new ProjectionGenerator( renderer );
-	generator.includeIntersectionEdges = params.includeIntersectionEdges;
 
 	// position the projectionGroup to map NDC output back to a camera-facing plane
 	const FWD = new Vector3( 0, 0, - 1 ).transformDirection( camera.matrixWorld );
@@ -190,14 +195,30 @@ async function updateEdges() {
 	let result;
 	try {
 
-		result = await generator.generate( input, {
+		const onProgress = ( p, msg ) => {
+
+			outputContainer.innerText = `${ msg }... ${ ( p * 100 ).toFixed( 2 ) }%`;
+
+		};
+
+		const options = {
 			signal: abortController.signal,
-			onProgress: ( p, msg ) => {
+			onProgress,
+		};
 
-				outputContainer.innerText = `${ msg }... ${ ( p * 100 ).toFixed( 2 ) }%`;
+		if ( params.webGPU ) {
 
-			},
-		} );
+			const generator = new ProjectionGeneratorCompute( renderer );
+			generator.includeIntersectionEdges = params.includeIntersectionEdges;
+			result = await generator.generate( input, options );
+
+		} else {
+
+			const generator = new ProjectionGenerator();
+			generator.includeIntersectionEdges = params.includeIntersectionEdges;
+			result = await generator.generateAsync( input, options );
+
+		}
 
 	} catch {
 
