@@ -12,6 +12,7 @@ import { EdgeGenerator } from './EdgeGenerator.js';
 import { LineObjectsBVH } from './utils/LineObjectsBVH.js';
 import { bvhcastEdges } from './utils/bvhcastEdges.js';
 import { getAllMeshes } from './utils/getAllMeshes.js';
+import { nextFrame } from './utils/nextFrame.js';
 
 const UP_VECTOR = /* @__PURE__ */ new Vector3( 0, 1, 0 );
 
@@ -295,38 +296,21 @@ export class ProjectionGenerator {
 	 * @param {AbortSignal} [options.signal]
 	 * @returns {ProjectionResult}
 	 */
-	generateAsync( geometry, options = {} ) {
+	async generateAsync( geometry, options = {} ) {
 
-		return new Promise( ( resolve, reject ) => {
+		const { signal } = options;
+		const task = this.generate( geometry, options );
+		let res;
+		while ( ! res || ! res.done ) {
 
-			const { signal } = options;
-			const task = this.generate( geometry, options );
-			run();
+			res = task.next();
+			await nextFrame();
 
-			function run() {
+			signal.throwIfAborted();
 
-				if ( signal && signal.aborted ) {
+		}
 
-					reject( new Error( 'ProjectionGenerator: Process aborted via AbortSignal.' ) );
-					return;
-
-				}
-
-				const result = task.next();
-				if ( result.done ) {
-
-					resolve( result.value );
-
-				} else {
-
-					requestAnimationFrame( run );
-
-				}
-
-			}
-
-
-		} );
+		return res.value;
 
 	}
 

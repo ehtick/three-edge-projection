@@ -1,7 +1,7 @@
 /** @import { Object3D, BufferGeometry } from 'three' */
 /** @import { WebGPURenderer } from 'three/webgpu' */
 import { IndirectStorageBufferAttribute, StorageBufferAttribute } from 'three/webgpu';
-import { sign, storage } from 'three/tsl';
+import { storage } from 'three/tsl';
 import { getAllMeshes } from '../utils/getAllMeshes.js';
 import { EdgeGenerator } from '../EdgeGenerator.js';
 import { isYProjectedLineDegenerate } from '../utils/triangleLineUtils.js';
@@ -60,7 +60,7 @@ export class ProjectionGenerator {
 		 * How long to spend generating edges.
 		 * @type {number}
 		 */
-		this.iterationTime = 30;
+		this.iterationTime = 300;
 
 	}
 

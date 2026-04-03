@@ -6,7 +6,6 @@ import { getAllMeshes } from './utils/getAllMeshes.js';
 import { nextFrame } from './utils/nextFrame.js';
 
 const _BtoA = /* @__PURE__ */ new Matrix4();
-const _toLocalMatrix = /* @__PURE__ */ new Matrix4();
 
 // Class for generating edges for use with the projection generator. Functions take geometries or
 // Object3D instances. If an Object3D is passed then lines for all child meshes will be generated
@@ -71,13 +70,6 @@ export class EdgeGenerator {
 		if ( geometry.isObject3D ) {
 
 			const meshes = getAllMeshes( geometry );
-			let localProjection = null;
-			if ( projectionDirection ) {
-
-				localProjection = new Vector3();
-
-			}
-
 			let time = performance.now();
 			for ( let i = 0; i < meshes.length; i ++ ) {
 
@@ -88,18 +80,8 @@ export class EdgeGenerator {
 				}
 
 				const mesh = meshes[ i ];
-				if ( localProjection ) {
-
-					_toLocalMatrix.copy( mesh.matrixWorld ).invert();
-					localProjection
-						.copy( projectionDirection )
-						.transformDirection( _toLocalMatrix )
-						.normalize();
-
-				}
-
 				const results = yield* generateEdges( mesh.geometry, [], {
-					projectionDirection: localProjection,
+					matrix: mesh.matrixWorld,
 					thresholdAngle: thresholdAngle,
 					iterationTime: iterationTime,
 				} );
