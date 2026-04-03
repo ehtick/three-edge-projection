@@ -66,21 +66,68 @@ function convertPathToLineSegments( path, scale ) {
 
 }
 
+/** @type {number} */
 export const OUTPUT_MESH = 0;
+
+/** @type {number} */
 export const OUTPUT_LINE_SEGMENTS = 1;
+
+/** @type {number} */
 export const OUTPUT_BOTH = 2;
+
+/**
+ * @callback SilhouetteProgressCallback
+ * @param {number} percent
+ */
+
+/**
+ * Used for generating a projected silhouette of a geometry using the clipper2-js project. Performing
+ * these operations can be extremely slow with more complex geometry and not always yield a stable result.
+ */
 export class SilhouetteGenerator {
 
 	constructor() {
 
+		/**
+		 * How long to spend trimming edges before yielding.
+		 * @type {number}
+		 */
 		this.iterationTime = 30;
+
 		this.intScalar = 1e9;
+
+		/**
+		 * If `false` then only the triangles facing upwards are included in the silhouette.
+		 * @type {boolean}
+		 */
 		this.doubleSided = false;
+
+		/**
+		 * Whether to sort triangles and project them large-to-small. In some cases this can cause
+		 * the performance to drop since the union operation is best performed with smooth, simple
+		 * edge shapes.
+		 * @type {boolean}
+		 */
 		this.sortTriangles = false;
+
+		/**
+		 * Whether to output mesh geometry, line segments geometry, or both in an array
+		 * ( `[ mesh, line segments ]` ).
+		 * @type {number}
+		 */
 		this.output = OUTPUT_MESH;
 
 	}
 
+	/**
+	 * Generate the silhouette geometry with a promise-style API.
+	 * @async
+	 * @param {BufferGeometry} geometry
+	 * @param {Object} [options]
+	 * @param {SilhouetteProgressCallback} [options.onProgress]
+	 * @param {AbortSignal} [options.signal]
+	 * @returns {BufferGeometry|Array<BufferGeometry>}
+	 */
 	generateAsync( geometry, options = {} ) {
 
 		return new Promise( ( resolve, reject ) => {
@@ -116,6 +163,14 @@ export class SilhouetteGenerator {
 
 	}
 
+	/**
+	 * Generate the geometry using a generator function.
+	 * @param {BufferGeometry} geometry
+	 * @param {Object} [options]
+	 * @param {SilhouetteProgressCallback} [options.onProgress]
+	 * @yields {void}
+	 * @returns {BufferGeometry|Array<BufferGeometry>}
+	 */
 	*generate( geometry, options = {} ) {
 
 		const { iterationTime, intScalar, doubleSided, output, sortTriangles } = this;
