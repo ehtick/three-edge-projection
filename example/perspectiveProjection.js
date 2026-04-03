@@ -10,7 +10,6 @@ import {
 	PerspectiveCamera,
 	WebGPURenderer,
 	Vector3,
-	MeshBasicMaterial,
 } from 'three/webgpu';
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -21,7 +20,7 @@ import { ProjectionGenerator } from 'three-edge-projection';
 
 const params = {
 	displayModel: true,
-	webGPU: true,
+	webGPU: false,
 	displayDrawThroughProjection: false,
 	includeIntersectionEdges: false,
 	regenerate: () => {
@@ -154,7 +153,7 @@ async function updateEdges() {
 
 	// position the projectionGroup to map NDC output back to a camera-facing plane
 	const FWD = new Vector3( 0, 0, - 1 ).transformDirection( camera.matrixWorld );
-	const distToCenter = - FWD.dot( camera.position ) + 1.5;
+	const distToCenter = - FWD.dot( camera.position ) + 1.75;
 	const _v = new Vector3( 1, 1, 1 ).applyMatrix4( camera.projectionMatrixInverse );
 	_v.multiplyScalar( distToCenter / _v.z );
 	projectionGroup.rotation.copy( camera.rotation ).reorder( 'ZYX' );

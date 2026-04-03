@@ -26,7 +26,7 @@ export class ProjectionGenerator {
 		this.angleThreshold = 50;
 		this.batchSize = 100000;
 		this.includeIntersectionEdges = true;
-		this.iterationTime = 30;
+		this.iterationTime = 300;
 
 	}
 
