@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ### Added
 - Support for projection matrix transformations.
 
+### Changed
+- Increased time spent per frame on edge generation.
+
+
 ## [0.0.7] - 2026.03.31
 ### Fixed
 - ProjectionGenerator: Fixed intersection edges not being generated correctly.
