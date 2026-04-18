@@ -1,6 +1,6 @@
 /** @import { Object3D, BufferGeometry } from 'three' */
 /** @import { WebGPURenderer } from 'three/webgpu' */
-import { IndirectStorageBufferAttribute, StorageBufferAttribute } from 'three/webgpu';
+import { IndirectStorageBufferAttribute, ReadbackBuffer, StorageBufferAttribute } from 'three/webgpu';
 import { storage } from 'three/tsl';
 import { getAllMeshes } from '../utils/getAllMeshes.js';
 import { EdgeGenerator } from '../EdgeGenerator.js';
@@ -62,6 +62,12 @@ export class ProjectionGenerator {
 		 */
 		this.iterationTime = 300;
 
+		/**
+		 * How many compute jobs to perform in parallel.
+		 * @type {number}
+		 */
+		this.parallelJobs = 3;
+
 	}
 
 	/**
@@ -74,7 +80,7 @@ export class ProjectionGenerator {
 	 */
 	async generate( scene, options = {} ) {
 
-		const { renderer, angleThreshold, includeIntersectionEdges, batchSize, iterationTime } = this;
+		const { renderer, angleThreshold, includeIntersectionEdges, batchSize, iterationTime, parallelJobs } = this;
 		const { onProgress = null, signal = null } = options;
 
 		// collect meshes
@@ -166,9 +172,14 @@ export class ProjectionGenerator {
 		const promises = [];
 		const edgeStructStride = edgeStruct.getLength();
 
-		const jobQueue = new JobQueue();
+		// register abort callback
 		const onAbort = () => jobQueue.cancelAll();
 		signal?.addEventListener( 'abort', onAbort );
+
+		// job queue and readback buffers to save memory, improve performance
+		const readbackBufferPool = [];
+		const jobQueue = new JobQueue();
+		jobQueue.maxJobs = parallelJobs;
 
 		const runJob = async ( start, count ) => {
 
@@ -202,14 +213,28 @@ export class ProjectionGenerator {
 			edgeOverlapsKernel.edgesToProcess = count;
 			renderer.compute( edgeOverlapsKernel.kernel, edgeOverlapsKernel.getDispatchSize( count ) );
 
+			let readbackBuffer;
+			if ( readbackBufferPool.length !== 0 ) {
+
+				readbackBuffer = readbackBufferPool.pop();
+
+			} else {
+
+				readbackBuffer = new ReadbackBuffer( MAX_BUFFER_SIZE );
+
+			}
+
 			const [ overlaps, bufferPointers, overflowBuffer ] = await Promise.all( [
-				renderer.getArrayBufferAsync( overlapsAttribute ),
+				renderer.getArrayBufferAsync( overlapsAttribute, readbackBuffer ),
 				renderer.getArrayBufferAsync( bufferPointersAttribute ),
 				renderer.getArrayBufferAsync( overflowFlagAttribute ),
 			] );
 
+			// add the readback buffer back to the pool if we've aborted this run
 			if ( signal?.aborted ) {
 
+				readbackBuffer.release();
+				readbackBufferPool.push( readbackBuffer );
 				return;
 
 			}
@@ -227,6 +252,8 @@ export class ProjectionGenerator {
 					const half = Math.ceil( count / 2 );
 					promises.push( jobQueue.add( runJob, [ start, half ] ) );
 					promises.push( jobQueue.add( runJob, [ start + half, count - half ] ) );
+					readbackBuffer.release();
+					readbackBufferPool.push( readbackBuffer );
 					return;
 
 				}
@@ -234,8 +261,8 @@ export class ProjectionGenerator {
 			}
 
 			// read buffers
-			const overlapsF32 = new Float32Array( overlaps );
-			const overlapsU32 = new Uint32Array( overlaps );
+			const overlapsF32 = new Float32Array( overlaps.buffer );
+			const overlapsU32 = new Uint32Array( overlaps.buffer );
 			const bufferPointersU32 = new Uint32Array( bufferPointers );
 			const stride = overlapRecordStruct.getLength();
 
@@ -266,6 +293,10 @@ export class ProjectionGenerator {
 
 			}
 
+			// release the buffer to the pool
+			readbackBuffer.release();
+			readbackBufferPool.push( readbackBuffer );
+
 		};
 
 		// enqueue initial jobs
@@ -291,6 +322,9 @@ export class ProjectionGenerator {
 			// bufferPointersAttribute.dispose();
 			// overflowFlagAttribute.dispose();
 			// edgeBufferAttribute.dispose();
+
+			// dispose of all the readback buffers
+			readbackBufferPool.forEach( rb => rb.dispose() );
 
 		}
 
@@ -325,7 +359,7 @@ class JobQueue {
 	constructor() {
 
 		this.queue = [];
-		this.maxJobs = 10;
+		this.maxJobs = 3;
 		this.currJobs = 0;
 		this._scheduled = false;
 
