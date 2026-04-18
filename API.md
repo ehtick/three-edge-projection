@@ -362,6 +362,15 @@ iterationTime: number
 How long to spend generating edges.
 
 
+### .parallelJobs
+
+```js
+parallelJobs: number
+```
+
+How many compute jobs to perform in parallel.
+
+
 ### .constructor
 
 ```js

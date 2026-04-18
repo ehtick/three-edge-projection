@@ -39,6 +39,7 @@ export class ProjectionGenerator {
 		/**
 		 * The threshold angle in degrees at which edges are generated.
 		 * @type {number}
+		 * @default 50
 		 */
 		this.angleThreshold = 50;
 
@@ -47,24 +48,28 @@ export class ProjectionGenerator {
 		 * faster but may cause internal buffers to overflow, resulting in extra kernel executions,
 		 * taking more time.
 		 * @type {number}
+		 * @default 100000
 		 */
 		this.batchSize = 100000;
 
 		/**
 		 * Whether to generate edges representing the intersections between triangles.
 		 * @type {boolean}
+		 * @default true
 		 */
 		this.includeIntersectionEdges = true;
 
 		/**
 		 * How long to spend generating edges.
 		 * @type {number}
+		 * @default 300
 		 */
 		this.iterationTime = 300;
 
 		/**
 		 * How many compute jobs to perform in parallel.
 		 * @type {number}
+		 * @default 3
 		 */
 		this.parallelJobs = 3;
 
