@@ -1,24 +1,10 @@
-import {
-	Quaternion,
-	AxesHelper,
-	Group,
-	MeshLambertMaterial,
-	BufferGeometry,
-	Float32BufferAttribute,
-	Mesh,
-	Box3,
-	Vector3,
-	PlaneGeometry,
-	MeshBasicMaterial,
-	LineBasicMaterial,
-	LineSegments,
-	LineDashedMaterial,
-} from 'three';
+import * as THREE from 'three';
 import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { MeshBVH, SAH } from 'three-mesh-bvh';
 import * as OBC from '@thatopen/components';
 import { WebGPURenderer } from 'three/webgpu';
 import { ProjectionGenerator, MeshVisibilityCuller } from 'three-edge-projection/webgpu';
+
 
 const params = {
 	displayModel: true,
@@ -26,17 +12,12 @@ const params = {
 	includeIntersectionEdges: false,
 	rotate: () => {
 
-		const randomQuaternion = new Quaternion();
+		const randomQuaternion = new THREE.Quaternion();
 		randomQuaternion.random();
 
 		allMeshes.quaternion.copy( randomQuaternion );
 		allMeshes.position.set( 0, 0, 0 );
 		allMeshes.updateMatrixWorld( true );
-
-		model.object.quaternion.copy( randomQuaternion );
-		model.object.position.set( 0, 0, 0 );
-		model.object.updateMatrixWorld( true );
-		fragments.core.update( true );
 
 	},
 	regenerate: () => {
@@ -69,11 +50,13 @@ components.init();
 
 world.scene.setup();
 
-world.scene.three.add( new AxesHelper() );
+world.scene.three.add( new THREE.AxesHelper() );
 
 outputContainer = document.getElementById( 'output' );
 
-const githubUrl = 'https://thatopen.github.io/engine_fragment/resources/worker.mjs';
+// prettier-ignore
+const githubUrl =
+	'https://thatopen.github.io/engine_fragment/resources/worker.mjs';
 const fetchedUrl = await fetch( githubUrl );
 const workerBlob = await fetchedUrl.blob();
 const workerFile = new File( [ workerBlob ], 'worker.mjs', { type: 'text/javascript' } );
@@ -98,15 +81,15 @@ fragments.core.models.materials.list.onItemSet.add( ( { value: material } ) => {
 
 } );
 
-async function loadModel( url ) {
+async function loadModel( url, id = url, raw = false ) {
 
 	const fetched = await fetch( url );
 	const buffer = await fetched.arrayBuffer();
 
 	const model = await fragments.core.load( buffer, {
-		modelId: url,
+		modelId: id,
 		camera: world.camera.three,
-		raw: false,
+		raw,
 	} );
 
 	world.scene.three.add( model.object );
@@ -121,15 +104,35 @@ async function loadModel( url ) {
 
 const model = await loadModel( '/frags/school_arq.frag' );
 
-const allMeshes = new Group();
+const allMeshes = new THREE.Group();
 
-const material = new MeshLambertMaterial();
+const material = new THREE.MeshLambertMaterial( {
+	color: new THREE.Color( 'white' ),
+} );
 
 // Add picking meshes (deduplicating geometries to save memory)
 const idsWithGeometry = await model.getItemsIdsWithGeometry();
 const allMeshesData = await model.getItemsGeometry( idsWithGeometry );
 
 const geometries = new Map();
+
+// Get category data to split edges by category
+const categoriesWithGeometry = await model.getItemsWithGeometryCategories() || [];
+const itemsByCat = await model.getItemsOfCategories( categoriesWithGeometry.map( cat => new RegExp( cat ) ) );
+const catKeys = Object.keys( itemsByCat );
+const itemsCatIndex = new Map();
+let catIndex = 0;
+for ( const cat in itemsByCat ) {
+
+	for ( const id of itemsByCat[ cat ] ) {
+
+		itemsCatIndex.set( id, catIndex );
+
+	}
+
+	catIndex ++;
+
+}
 
 for ( const itemId in allMeshesData ) {
 
@@ -150,16 +153,27 @@ for ( const itemId in allMeshesData ) {
 		const representationId = geomData.representationId;
 		if ( ! geometries.has( representationId ) ) {
 
-			const geometry = new BufferGeometry();
-			geometry.setAttribute( 'position', new Float32BufferAttribute( geomData.positions, 3 ) );
-			geometry.setAttribute( 'normal', new Float32BufferAttribute( geomData.normals, 3 ) );
+			const geometry = new THREE.BufferGeometry();
+			geometry.setAttribute(
+				'position',
+				new THREE.Float32BufferAttribute( geomData.positions, 3 ),
+			);
+			geometry.setAttribute(
+				'normal',
+				new THREE.Float32BufferAttribute( geomData.normals, 3 ),
+			);
 			geometry.setIndex( Array.from( geomData.indices ) );
 			geometries.set( representationId, geometry );
 
 		}
 
 		const geometry = geometries.get( representationId );
-		const mesh = new Mesh( geometry, material );
+
+		const mesh = new THREE.Mesh( geometry, material );
+
+		const catIdx = itemsCatIndex.get( geomData.localId );
+		mesh.userData.category = catKeys[ catIdx ];
+
 		mesh.applyMatrix4( geomData.transform );
 		mesh.applyMatrix4( model.object.matrixWorld );
 		mesh.updateWorldMatrix( true, true );
@@ -193,8 +207,7 @@ allMeshes.traverse( c => {
 
 // Compute bounding box of allMeshes
 allMeshes.updateWorldMatrix( true, true );
-
-const box = new Box3();
+const box = new THREE.Box3();
 allMeshes.traverse( ( child ) => {
 
 	if ( child.isMesh && child.geometry ) {
@@ -206,27 +219,69 @@ allMeshes.traverse( ( child ) => {
 
 } );
 
-const size = box.getSize( new Vector3() );
-const center = box.getCenter( new Vector3() );
+const size = box.getSize( new THREE.Vector3() );
+const center = box.getCenter( new THREE.Vector3() );
 
 const planeHeight = box.max.y + 3;
 const planeSize = Math.max( size.x, size.z ) * 1.5;
-const planeGeometry = new PlaneGeometry( planeSize, planeSize );
-const planeMaterial = new MeshBasicMaterial( {
-	color: 0x000000,
+const planeGeometry = new THREE.PlaneGeometry( planeSize, planeSize );
+const planeMaterial = new THREE.MeshBasicMaterial( {
+	color: "white",
 	transparent: true,
 	opacity: 0.95,
 } );
-const groundPlane = new Mesh( planeGeometry, planeMaterial );
-groundPlane.rotation.x = - Math.PI / 2;
-groundPlane.position.set( center.x, planeHeight, center.z );
-world.scene.three.add( groundPlane );
+const plane = new THREE.Mesh( planeGeometry, planeMaterial );
+plane.rotation.x = - Math.PI / 2;
+plane.position.set( center.x, planeHeight, center.z );
+world.scene.three.add( plane );
 
-const projectionMaterial = new LineBasicMaterial( { color: 0x888888 } );
-projection = new LineSegments( new BufferGeometry(), projectionMaterial );
+// prettier-ignore
+const GROUP_PALETTE = [
+	new THREE.Color( 0xe6194b ), new THREE.Color( 0x3cb44b ), new THREE.Color( 0x4363d8 ),
+	new THREE.Color( 0xf58231 ), new THREE.Color( 0x911eb4 ), new THREE.Color( 0x42d4f4 ),
+	new THREE.Color( 0xf032e6 ), new THREE.Color( 0xbfef45 ), new THREE.Color( 0xfabed4 ),
+	new THREE.Color( 0x469990 ), new THREE.Color( 0xdcbeff ), new THREE.Color( 0x9a6324 ),
+	new THREE.Color( 0x800000 ), new THREE.Color( 0xaaffc3 ), new THREE.Color( 0x808000 ),
+	new THREE.Color( 0x000075 ), new THREE.Color( 0xa9a9a9 ), new THREE.Color( 0xffe119 ),
+	new THREE.Color( 0xff6f61 ), new THREE.Color( 0x6b5b95 ), new THREE.Color( 0x88b04b ),
+	new THREE.Color( 0xf7cac9 ), new THREE.Color( 0x92a8d1 ), new THREE.Color( 0x955251 ),
+	new THREE.Color( 0xb565a7 ), new THREE.Color( 0x009b77 ), new THREE.Color( 0xdd4124 ),
+	new THREE.Color( 0x45b8ac ), new THREE.Color( 0xefc050 ), new THREE.Color( 0x5b5ea6 ),
+	new THREE.Color( 0x9b2335 ), new THREE.Color( 0xdfcfbe ), new THREE.Color( 0x55b4b0 ),
+	new THREE.Color( 0xe15d44 ), new THREE.Color( 0x7fcdcd ), new THREE.Color( 0xbc243c ),
+	new THREE.Color( 0xc3447a ), new THREE.Color( 0x98b4d4 ), new THREE.Color( 0xf0c05a ),
+	new THREE.Color( 0x6667ab ), new THREE.Color( 0xd2691e ), new THREE.Color( 0x2e8b57 ),
+	new THREE.Color( 0xcd5c5c ), new THREE.Color( 0x4682b4 ), new THREE.Color( 0xdaa520 ),
+	new THREE.Color( 0x8b008b ), new THREE.Color( 0x556b2f ), new THREE.Color( 0xff4500 ),
+];
+
+function applyGroupColors( geometry ) {
+
+	const groupAttr = geometry.getAttribute( 'group' );
+	if ( ! groupAttr ) return;
+
+	const vertexCount = geometry.getAttribute( 'position' ).count;
+	const colorArray = new Float32Array( vertexCount * 3 );
+
+	for ( let i = 0; i < vertexCount; i ++ ) {
+
+		const groupIndex = Math.round( groupAttr.getX( i ) );
+		const color = GROUP_PALETTE[ groupIndex % GROUP_PALETTE.length ];
+		colorArray[ i * 3 ] = color.r;
+		colorArray[ i * 3 + 1 ] = color.g;
+		colorArray[ i * 3 + 2 ] = color.b;
+
+	}
+
+	geometry.setAttribute( 'color', new THREE.BufferAttribute( colorArray, 3 ) );
+
+}
+
+const projectionMaterial = new THREE.LineBasicMaterial( { vertexColors: true } );
+projection = new THREE.LineSegments( new THREE.BufferGeometry(), projectionMaterial );
 projection.position.y = planeHeight + 0.01;
 
-drawThroughProjection = new LineSegments( new BufferGeometry(), new LineDashedMaterial( { color: 0x444444, dashSize: 0.03, gapSize: 0.03, transparent: true } ) );
+drawThroughProjection = new THREE.LineSegments( new THREE.BufferGeometry(), new THREE.LineDashedMaterial( { color: 0x444444, dashSize: 0.03, gapSize: 0.03, transparent: true } ) );
 drawThroughProjection.position.y = planeHeight + 0.01;
 drawThroughProjection.renderOrder = - 1;
 world.scene.three.add( projection, drawThroughProjection );
@@ -247,36 +302,38 @@ async function updateEdges() {
 
 	outputContainer.innerText = 'Generating...';
 
+	// dispose the geometry
 	projection.geometry.dispose();
 	drawThroughProjection.geometry.dispose();
 
-	projection.geometry = new BufferGeometry();
-	drawThroughProjection.geometry = new BufferGeometry();
+	// initialize an empty geometry
+	projection.geometry = new THREE.BufferGeometry();
+	drawThroughProjection.geometry = new THREE.BufferGeometry();
 
 	const timeStart = window.performance.now();
-
 	const generator = new ProjectionGenerator( gpuRenderer );
 	generator.angleThreshold = ANGLE_THRESHOLD;
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;
 
 	const input = await new MeshVisibilityCuller( gpuRenderer, { pixelsPerMeter: 0.05 } ).cull( allMeshes );
+	const collection = await generator.generate( input, {
+		onProgress: ( p, msg ) => {
 
-	const result = await generator.generate( input, {
-		onProgress: p => {
-
-			outputContainer.innerText = `Generating... ${ ( p * 100 ).toFixed( 1 ) }%`;
+			outputContainer.innerText = msg;
+			if ( p ) outputContainer.innerText += ' ' + ( 100 * p ).toFixed( 1 ) + '%';
 
 		},
 	} );
 
 	drawThroughProjection.geometry.dispose();
-	drawThroughProjection.geometry = result.hiddenEdges.getLineGeometry();
+	drawThroughProjection.geometry = collection.hiddenEdges.getLineGeometry();
 	drawThroughProjection.computeLineDistances();
 
 	projection.geometry.dispose();
-	projection.geometry = result.visibleEdges.getLineGeometry();
-	const trimTime = window.performance.now() - timeStart;
+	projection.geometry = collection.visibleEdges.getLineGeometry();
+	applyGroupColors( projection.geometry );
 
+	const trimTime = window.performance.now() - timeStart;
 	outputContainer.innerText = `Generation time: ${ trimTime.toFixed( 2 ) }ms`;
 
 }
