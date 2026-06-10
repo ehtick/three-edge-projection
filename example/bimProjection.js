@@ -255,21 +255,24 @@ const GROUP_PALETTE = [
 	new THREE.Color( 0x8b008b ), new THREE.Color( 0x556b2f ), new THREE.Color( 0xff4500 ),
 ];
 
-function applyGroupColors( geometry ) {
-
-	const groupAttr = geometry.getAttribute( 'group' );
-	if ( ! groupAttr ) return;
+function applyGroupColors( geometry, edgeSet ) {
 
 	const vertexCount = geometry.getAttribute( 'position' ).count;
 	const colorArray = new Float32Array( vertexCount * 3 );
 
-	for ( let i = 0; i < vertexCount; i ++ ) {
+	for ( const mesh of edgeSet.meshToSegments.keys() ) {
 
-		const groupIndex = Math.round( groupAttr.getX( i ) );
-		const color = GROUP_PALETTE[ groupIndex % GROUP_PALETTE.length ];
-		colorArray[ i * 3 ] = color.r;
-		colorArray[ i * 3 + 1 ] = color.g;
-		colorArray[ i * 3 + 2 ] = color.b;
+		const range = edgeSet.getRangeForMesh( mesh );
+		if ( ! range ) continue;
+
+		const color = GROUP_PALETTE[ ( catColorIndex.get( mesh.userData.category ) ?? 0 ) % GROUP_PALETTE.length ];
+		for ( let v = range.start; v < range.start + range.count; v ++ ) {
+
+			colorArray[ v * 3 ] = color.r;
+			colorArray[ v * 3 + 1 ] = color.g;
+			colorArray[ v * 3 + 2 ] = color.b;
+
+		}
 
 	}
 
@@ -331,7 +334,7 @@ async function updateEdges() {
 
 	projection.geometry.dispose();
 	projection.geometry = collection.visibleEdges.getLineGeometry();
-	applyGroupColors( projection.geometry );
+	applyGroupColors( projection.geometry, collection.visibleEdges );
 
 	const trimTime = window.performance.now() - timeStart;
 	outputContainer.innerText = `Generation time: ${ trimTime.toFixed( 2 ) }ms`;
