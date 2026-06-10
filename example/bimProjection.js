@@ -3,7 +3,8 @@ import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { MeshBVH, SAH } from 'three-mesh-bvh';
 import * as OBC from '@thatopen/components';
 import { WebGPURenderer } from 'three/webgpu';
-import { ProjectionGenerator, MeshVisibilityCuller } from 'three-edge-projection/webgpu';
+import { ProjectionGenerator } from 'three-edge-projection/webgpu';
+import { MeshVisibilityCuller } from 'three-edge-projection';
 
 
 const params = {
@@ -35,6 +36,8 @@ let outputContainer;
 // Separate WebGPU renderer for compute (OBC's renderer is WebGL)
 const gpuRenderer = new WebGPURenderer();
 await gpuRenderer.init();
+
+const glRenderer = new THREE.WebGLRenderer();
 
 const components = new OBC.Components();
 const worlds = components.get( OBC.Worlds );
@@ -120,6 +123,7 @@ const geometries = new Map();
 const categoriesWithGeometry = await model.getItemsWithGeometryCategories() || [];
 const itemsByCat = await model.getItemsOfCategories( categoriesWithGeometry.map( cat => new RegExp( cat ) ) );
 const catKeys = Object.keys( itemsByCat );
+const catColorIndex = new Map( catKeys.map( ( k, i ) => [ k, i ] ) );
 const itemsCatIndex = new Map();
 let catIndex = 0;
 for ( const cat in itemsByCat ) {
@@ -318,7 +322,10 @@ async function updateEdges() {
 	generator.angleThreshold = ANGLE_THRESHOLD;
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;
 
-	const input = await new MeshVisibilityCuller( gpuRenderer, { pixelsPerMeter: 0.05 } ).cull( allMeshes );
+	// Using WebGPURenderer vs WebGL for culling currently takes significantly longer with
+	// many meshes due to TSL processing time.
+	// const input = await new MeshVisibilityCuller( gpuRenderer, { pixelsPerMeter: 0.05 } ).cull( allMeshes );
+	const input = await new MeshVisibilityCuller( glRenderer, { pixelsPerMeter: 0.05 } ).cull( allMeshes );
 	const collection = await generator.generate( input, {
 		onProgress: ( p, msg ) => {
 
