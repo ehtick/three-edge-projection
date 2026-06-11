@@ -9,6 +9,7 @@ import { MeshVisibilityCuller } from 'three-edge-projection';
 
 const params = {
 	displayModel: true,
+	useVisibilityCull: true,
 	displayDrawThroughProjection: false,
 	includeIntersectionEdges: false,
 	rotate: () => {
@@ -294,6 +295,7 @@ drawThroughProjection.renderOrder = - 1;
 world.scene.three.add( projection, drawThroughProjection );
 
 gui = new GUI();
+gui.add( params, 'useVisibilityCull' );
 gui.add( params, 'includeIntersectionEdges' );
 gui.add( params, 'displayDrawThroughProjection' );
 gui.add( params, 'rotate' );
@@ -322,10 +324,20 @@ async function updateEdges() {
 	generator.angleThreshold = ANGLE_THRESHOLD;
 	generator.includeIntersectionEdges = params.includeIntersectionEdges;
 
-	// Using WebGPURenderer vs WebGL for culling currently takes significantly longer with
-	// many meshes due to TSL processing time.
-	// const input = await new MeshVisibilityCuller( gpuRenderer, { pixelsPerMeter: 0.05 } ).cull( allMeshes );
-	const input = await new MeshVisibilityCuller( glRenderer, { pixelsPerMeter: 0.05 } ).cull( allMeshes );
+	let input;
+	if ( params.useVisibilityCull ) {
+
+		// Using WebGPURenderer vs WebGL for culling currently takes significantly longer with
+		// many meshes due to TSL processing time.
+		// input = await new MeshVisibilityCuller( gpuRenderer, { pixelsPerMeter: 0.05 } ).cull( allMeshes );
+		input = await new MeshVisibilityCuller( glRenderer, { pixelsPerMeter: 0.05 } ).cull( allMeshes );
+
+	} else {
+
+		input = allMeshes;
+
+	}
+
 	const collection = await generator.generate( input, {
 		onProgress: ( p, msg ) => {
 
