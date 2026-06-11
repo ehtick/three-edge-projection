@@ -76,6 +76,7 @@ export class EdgeGenerator {
 				if ( performance.now() - time > iterationTime ) {
 
 					yield;
+					time = performance.now();
 
 				}
 
@@ -187,6 +188,8 @@ export class EdgeGenerator {
 			time = performance.now();
 			for ( let i = 0; i < meshes.length; i ++ ) {
 
+				// TODO: this will check the same mesh against itself for every instance. Caching the self-intersecting
+				// edges could lead to a perf improvement if many instances are used.
 				for ( let j = i; j < meshes.length; j ++ ) {
 
 					if ( performance.now() - time > iterationTime ) {
