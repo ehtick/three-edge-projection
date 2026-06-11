@@ -6,7 +6,6 @@ import { WebGPURenderer } from 'three/webgpu';
 import { ProjectionGenerator } from 'three-edge-projection/webgpu';
 import { MeshVisibilityCuller } from 'three-edge-projection';
 
-
 const params = {
 	displayModel: true,
 	useVisibilityCull: true,
@@ -53,8 +52,6 @@ world.camera = new OBC.OrthoPerspectiveCamera( components );
 components.init();
 
 world.scene.setup();
-
-world.scene.three.add( new THREE.AxesHelper() );
 
 outputContainer = document.getElementById( 'output' );
 
@@ -106,7 +103,7 @@ async function loadModel( url, id = url, raw = false ) {
 
 }
 
-const model = await loadModel( '/frags/school_arq.frag' );
+const model = await loadModel( '/frags/metal.frag' );
 
 const allMeshes = new THREE.Group();
 
@@ -231,9 +228,9 @@ const planeHeight = box.max.y + 3;
 const planeSize = Math.max( size.x, size.z ) * 1.5;
 const planeGeometry = new THREE.PlaneGeometry( planeSize, planeSize );
 const planeMaterial = new THREE.MeshBasicMaterial( {
-	color: "white",
+	color: world.scene.three.background,
 	transparent: true,
-	opacity: 0.95,
+	opacity: 0.9,
 } );
 const plane = new THREE.Mesh( planeGeometry, planeMaterial );
 plane.rotation.x = - Math.PI / 2;
