@@ -327,7 +327,7 @@ Takes the WebGPURenderer instance used to run compute kernels.
 ### .angleThreshold
 
 ```js
-angleThreshold: number
+angleThreshold: number = 50
 ```
 
 The threshold angle in degrees at which edges are generated.
@@ -336,7 +336,7 @@ The threshold angle in degrees at which edges are generated.
 ### .batchSize
 
 ```js
-batchSize: number
+batchSize: number = 100000
 ```
 
 The number of edges to process in one compute kernel pass. Larger values can process
@@ -347,7 +347,7 @@ taking more time.
 ### .includeIntersectionEdges
 
 ```js
-includeIntersectionEdges: boolean
+includeIntersectionEdges: boolean = true
 ```
 
 Whether to generate edges representing the intersections between triangles.
@@ -356,7 +356,7 @@ Whether to generate edges representing the intersections between triangles.
 ### .iterationTime
 
 ```js
-iterationTime: number
+iterationTime: number = 300
 ```
 
 How long to spend generating edges.
@@ -365,7 +365,7 @@ How long to spend generating edges.
 ### .parallelJobs
 
 ```js
-parallelJobs: number
+parallelJobs: number = 3
 ```
 
 How many compute jobs to perform in parallel.

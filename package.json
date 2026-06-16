@@ -15,7 +15,6 @@
   "scripts": {
     "start": "vite --config ./vite.config.js",
     "build-examples": "vite build --config ./vite.config.js",
-    "docs:build": "node utils/docs/build.js",
     "lint": "eslint .",
     "test": "vitest run"
   },
